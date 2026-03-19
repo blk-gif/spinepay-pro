@@ -4,7 +4,13 @@
       "Bash(./node_modules/.bin/electron --version 2>&1)",
       "Bash(npm install:*)",
       "Bash(./node_modules/.bin/electron-rebuild -f -w better-sqlite3)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Read(//c/Users/Jayto/Documents/**)",
+      "Read(//c/Users/Jayto/Documents//**)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(start cmd:*)"
     ]
   }
 }
