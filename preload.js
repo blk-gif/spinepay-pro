@@ -67,6 +67,7 @@ contextBridge.exposeInMainWorld('api', {
     update: (id, data) => ipcRenderer.invoke('locations:update', { id, data })
   },
   intake: {
+    getAll: () => ipcRenderer.invoke('intake:get-all'),
     getByPatient: (patientId) => ipcRenderer.invoke('intake:get-by-patient', patientId),
     getById: (id) => ipcRenderer.invoke('intake:get-by-id', id),
     create: (data) => ipcRenderer.invoke('intake:create', data),
@@ -78,21 +79,25 @@ contextBridge.exposeInMainWorld('api', {
     update: (id, data) => ipcRenderer.invoke('insverify:update', { id, data })
   },
   soap: {
+    getAll: () => ipcRenderer.invoke('soap:get-all'),
     getByAppointment: (appointmentId) => ipcRenderer.invoke('soap:get-by-appointment', appointmentId),
     getByPatient: (patientId) => ipcRenderer.invoke('soap:get-by-patient', patientId),
     create: (data) => ipcRenderer.invoke('soap:create', data),
-    update: (id, data) => ipcRenderer.invoke('soap:update', { id, data })
+    update: (id, data) => ipcRenderer.invoke('soap:update', { id, data }),
+    delete: (id) => ipcRenderer.invoke('soap:delete', id)
   },
   eob: {
     getAll: () => ipcRenderer.invoke('eob:get-all'),
     getByPatient: (patientId) => ipcRenderer.invoke('eob:get-by-patient', patientId),
     create: (data) => ipcRenderer.invoke('eob:create', data),
-    update: (id, data) => ipcRenderer.invoke('eob:update', { id, data })
+    update: (id, data) => ipcRenderer.invoke('eob:update', { id, data }),
+    delete: (id) => ipcRenderer.invoke('eob:delete', id)
   },
   reminders: {
     getTemplates: () => ipcRenderer.invoke('reminders:get-templates'),
     createTemplate: (data) => ipcRenderer.invoke('reminders:create-template', data),
     updateTemplate: (id, data) => ipcRenderer.invoke('reminders:update-template', { id, data }),
+    deleteTemplate: (id) => ipcRenderer.invoke('reminders:delete-template', id),
     getLog: () => ipcRenderer.invoke('reminders:get-log'),
     send: (appointmentId, templateId) => ipcRenderer.invoke('reminders:send', { appointmentId, templateId })
   },
