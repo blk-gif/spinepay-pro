@@ -98,6 +98,14 @@
           <div id="clockTime" style="font-size:14px; font-weight:600; color:#e0e0e0;"></div>
           <div id="clockDate" class="date" style="text-align:right;"></div>
         </div>
+
+        <div id="topbarUserBadge" style="display:flex;align-items:center;gap:10px;padding:6px 14px;background:rgba(255,255,255,.04);border:1px solid rgba(255,182,18,.15);border-radius:8px;margin-left:12px;cursor:default;">
+          <div id="topbarAvatar" style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#d4af37,#a08020);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#000;flex-shrink:0;">A</div>
+          <div style="line-height:1.3;">
+            <div id="topbarUserName" style="font-size:12px;font-weight:600;color:#e0e0e0;white-space:nowrap;">Administrator</div>
+            <div id="topbarUserRole" style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;color:var(--gold);">Admin</div>
+          </div>
+        </div>
       </header>
 
       <!-- CONTENT AREA -->
@@ -116,7 +124,7 @@
               <div class="stat-value" id="stat-today-appts">—</div>
               <div class="stat-label">Today's Appointments</div>
             </div>
-            <div class="stat-card green">
+            <div class="stat-card green" id="stat-card-revenue">
               <div class="stat-icon"><i class="fa-solid fa-dollar-sign"></i></div>
               <div class="stat-value" id="stat-monthly-revenue">—</div>
               <div class="stat-label">Monthly Revenue</div>
@@ -144,7 +152,7 @@
               </div>
             </div>
 
-            <div class="card card-gold">
+            <div class="card card-gold" id="dashRecentClaimsCard">
               <div class="card-header">
                 <div class="card-title"><i class="fa-solid fa-file-invoice-dollar"></i> Recent Claims</div>
                 <button class="btn btn-sm btn-outline" onclick="window.App.navigateTo('billing')">

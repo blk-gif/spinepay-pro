@@ -256,6 +256,7 @@ window.App = (() => {
   async function loadDashboard() {
     try {
       const today = todayString();
+      const isAdmin = currentUser && currentUser.role === 'admin';
 
       // Load stats in parallel
       const [patients, appointments, claims] = await Promise.all([
@@ -270,24 +271,34 @@ window.App = (() => {
       // Today's appointments
       $('stat-today-appts').textContent = appointments.length;
 
-      // Pending claims
+      // Pending claims count (shown to all, it's just a number)
       const pendingClaims = claims.filter(c => ['pending', 'submitted', 'in-review'].includes(c.status));
       $('stat-pending-claims').textContent = pendingClaims.length;
 
-      // Update nav badge
       if (pendingClaims.length > 0) {
         $('pending-claims-badge').textContent = pendingClaims.length;
         $('pending-claims-badge').style.display = 'inline-flex';
       }
 
-      // Monthly revenue
-      const now = new Date();
-      const startOfMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-      const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
-      const revenue = await window.api.reports.revenueSummary(startOfMonth, endOfMonth);
-      $('stat-monthly-revenue').textContent = formatCurrency(revenue.total_collected);
+      // ── Revenue stat card: admin only ──
+      const revenueCard = $('stat-card-revenue');
+      if (isAdmin) {
+        const now = new Date();
+        const startOfMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+        const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().split('T')[0];
+        const revenue = await window.api.reports.revenueSummary(startOfMonth, endOfMonth);
+        $('stat-monthly-revenue').textContent = formatCurrency(revenue.total_collected);
+      } else {
+        revenueCard.innerHTML = `
+          <div class="stat-icon"><i class="fa-solid fa-lock"></i></div>
+          <div class="stat-value" style="font-size:11px;line-height:1.4;color:var(--text-muted);margin-top:4px;">Manager<br>Access Required</div>
+          <div class="stat-label">Monthly Revenue</div>
+        `;
+        revenueCard.style.opacity = '0.6';
+        revenueCard.style.cursor = 'not-allowed';
+      }
 
-      // Render today's appointments
+      // ── Today's appointments (shown to all) ──
       const apptContainer = $('dashTodayAppts');
       if (appointments.length === 0) {
         apptContainer.innerHTML = `<div class="table-empty"><i class="fa-regular fa-calendar"></i><p>No appointments today</p></div>`;
@@ -305,38 +316,48 @@ window.App = (() => {
           `).join('') + `</div>`;
       }
 
-      // Render recent claims
+      // ── Recent claims panel: admin only ──
       const claimsContainer = $('dashRecentClaims');
-      const recentClaims = claims.slice(0, 5);
-      if (recentClaims.length === 0) {
-        claimsContainer.innerHTML = `<div class="table-empty"><i class="fa-regular fa-file"></i><p>No recent claims</p></div>`;
+      const claimsCard = $('dashRecentClaimsCard');
+      if (isAdmin) {
+        const recentClaims = claims.slice(0, 5);
+        if (recentClaims.length === 0) {
+          claimsContainer.innerHTML = `<div class="table-empty"><i class="fa-regular fa-file"></i><p>No recent claims</p></div>`;
+        } else {
+          claimsContainer.innerHTML = `
+            <div class="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Patient</th>
+                    <th>Insurer</th>
+                    <th>Amount</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${recentClaims.map(c => `
+                    <tr class="clickable" onclick="window.App.navigateTo('billing')">
+                      <td class="td-primary">${c.first_name} ${c.last_name}</td>
+                      <td>${c.insurer || '—'}</td>
+                      <td>${formatCurrency(c.amount)}</td>
+                      <td>${statusBadge(c.status)}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>`;
+        }
       } else {
         claimsContainer.innerHTML = `
-          <div class="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>Patient</th>
-                  <th>Insurer</th>
-                  <th>Amount</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${recentClaims.map(c => `
-                  <tr class="clickable" onclick="window.App.navigateTo('billing')">
-                    <td class="td-primary">${c.first_name} ${c.last_name}</td>
-                    <td>${c.insurer || '—'}</td>
-                    <td>${formatCurrency(c.amount)}</td>
-                    <td>${statusBadge(c.status)}</td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
+          <div class="table-empty" style="padding:30px 20px;">
+            <i class="fa-solid fa-lock" style="font-size:2rem;color:var(--gold);opacity:.5;margin-bottom:10px;"></i>
+            <p style="font-weight:600;">Manager Access Required</p>
+            <p style="font-size:11px;color:var(--text-faint);margin-top:4px;">Billing and revenue data is restricted to admin users.</p>
           </div>`;
       }
 
-      // Update referral badge
+      // ── Referral badge (shown to all) ──
       const referrals = await window.api.referrals.getAll();
       const pendingReferrals = referrals.filter(r => r.status === 'pending');
       if (pendingReferrals.length > 0) {
@@ -364,9 +385,22 @@ window.App = (() => {
   function initUserUI() {
     if (!currentUser) return;
     const initials = currentUser.full_name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+    const roleLabel = currentUser.role.charAt(0).toUpperCase() + currentUser.role.slice(1);
+
+    // Sidebar
     $('sidebarUserAvatar').textContent = initials;
     $('sidebarUserName').textContent = currentUser.full_name;
-    $('sidebarUserRole').textContent = currentUser.role.charAt(0).toUpperCase() + currentUser.role.slice(1);
+    $('sidebarUserRole').textContent = roleLabel;
+
+    // Topbar badge
+    $('topbarAvatar').textContent = initials;
+    $('topbarUserName').textContent = currentUser.full_name;
+    $('topbarUserRole').textContent = roleLabel;
+    if (currentUser.role === 'admin') {
+      $('topbarUserRole').style.color = 'var(--gold)';
+    } else {
+      $('topbarUserRole').style.color = '#3498db';
+    }
   }
 
   // ── Logout ─────────────────────────────────────────────────────────────────

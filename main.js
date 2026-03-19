@@ -143,14 +143,17 @@ function initDatabase() {
     );
   `);
 
-  // Insert default admin if not exists
+  // Insert default users if not exists
   const adminExists = db.prepare('SELECT id FROM users WHERE username = ?').get('admin');
   if (!adminExists) {
     db.prepare(`INSERT INTO users (username, password_hash, role, full_name) VALUES (?, ?, ?, ?)`).run(
       'admin', hashPassword('admin123'), 'admin', 'Administrator'
     );
+  }
+  const staffExists = db.prepare('SELECT id FROM users WHERE username = ?').get('staff');
+  if (!staffExists) {
     db.prepare(`INSERT INTO users (username, password_hash, role, full_name) VALUES (?, ?, ?, ?)`).run(
-      'staff1', hashPassword('staff123'), 'staff', 'Front Desk Staff'
+      'staff', hashPassword('staff123'), 'staff', 'Front Desk Staff'
     );
   }
 
