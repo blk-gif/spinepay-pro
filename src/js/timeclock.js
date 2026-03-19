@@ -222,11 +222,8 @@ window.TimeClock = (() => {
     const endStr   = fmtDate(addDays(currentWeekStart, 6));
 
     try {
-      const params = isAdmin
-        ? { start: startStr, end: endStr }
-        : { start: startStr, end: endStr, userId: user.id };
-
-      allEntries = await window.api.timeclock.getEntries(params);
+      const userId = isAdmin ? null : user.id;
+      allEntries = await window.api.timeclock.getEntries(userId, startStr, endStr);
     } catch (err) {
       allEntries = [];
     }
@@ -235,7 +232,7 @@ window.TimeClock = (() => {
 
   // ── Hero UI ────────────────────────────────────────────────────────────────
   function updateHeroUI() {
-    const isClockedIn  = clockStatus?.clocked_in;
+    const isClockedIn  = !!clockStatus;
     const statusEl     = document.getElementById('tcHeroStatus');
     const statusLabel  = document.getElementById('tcHeroStatusLabel');
     const clockInBtn   = document.getElementById('tcClockInBtn');
@@ -250,7 +247,7 @@ window.TimeClock = (() => {
       if (clockInBtn)  clockInBtn.style.display  = 'none';
       if (clockOutBtn) clockOutBtn.style.display = '';
       if (notesInput)  notesInput.style.display  = 'none';
-      startLiveTimer(clockStatus.entry?.clock_in);
+      startLiveTimer(clockStatus?.clock_in);
     } else {
       statusEl.style.color  = 'var(--text-muted)';
       if (statusLabel) statusLabel.textContent = 'Clocked Out';
@@ -303,7 +300,7 @@ window.TimeClock = (() => {
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Clocking In...'; }
 
     try {
-      await window.api.timeclock.clockIn({ userId: user.id, notes: notes || null });
+      await window.api.timeclock.clockIn(user.id, notes || null);
       toast('Clocked in successfully', 'success');
       await loadAll();
     } catch (err) {
@@ -323,7 +320,7 @@ window.TimeClock = (() => {
     if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Clocking Out...'; }
 
     try {
-      await window.api.timeclock.clockOut({ userId: user.id });
+      await window.api.timeclock.clockOut(user.id);
       toast('Clocked out successfully', 'success');
       await loadAll();
     } catch (err) {
@@ -413,7 +410,8 @@ window.TimeClock = (() => {
   // ── Approve Entry ──────────────────────────────────────────────────────────
   async function approveEntry(id) {
     try {
-      await window.api.timeclock.approve(id);
+      const user = getCurrentUser();
+      await window.api.timeclock.approve(id, user.id);
       toast('Entry approved', 'success');
       await loadWeekEntries();
     } catch (err) {
