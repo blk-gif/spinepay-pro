@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SpinePay Pro</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+
+    <!-- ── SIDEBAR ─────────────────────────────────────────────── -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-logo">
+          <div class="brand-icon"><i class="fa-solid fa-bone"></i></div>
+          <span class="brand-name">SpinePay Pro</span>
+        </div>
+        <div class="brand-clinic">Walden Bailey Chiropractic</div>
+      </div>
+
+      <nav class="sidebar-nav">
+        <div class="nav-section-label">Main</div>
+
+        <div class="nav-item active" data-module="dashboard" id="nav-dashboard">
+          <i class="fa-solid fa-chart-line"></i>
+          <span>Dashboard</span>
+        </div>
+
+        <div class="nav-item" data-module="patients" id="nav-patients">
+          <i class="fa-solid fa-users"></i>
+          <span>Patients</span>
+        </div>
+
+        <div class="nav-item" data-module="scheduling" id="nav-scheduling">
+          <i class="fa-solid fa-calendar-days"></i>
+          <span>Scheduling</span>
+        </div>
+
+        <div class="nav-section-label">Billing</div>
+
+        <div class="nav-item" data-module="billing" id="nav-billing">
+          <i class="fa-solid fa-file-invoice-dollar"></i>
+          <span>Billing &amp; Claims</span>
+          <span class="nav-badge" id="pending-claims-badge" style="display:none">0</span>
+        </div>
+
+        <div class="nav-section-label">Network</div>
+
+        <div class="nav-item" data-module="referrals" id="nav-referrals">
+          <i class="fa-solid fa-share-nodes"></i>
+          <span>Referrals</span>
+          <span class="nav-badge gold" id="pending-referrals-badge" style="display:none">0</span>
+        </div>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="user-card">
+          <div class="user-avatar" id="sidebarUserAvatar">A</div>
+          <div class="user-info">
+            <div class="user-name" id="sidebarUserName">Administrator</div>
+            <div class="user-role" id="sidebarUserRole">admin</div>
+          </div>
+          <button class="btn-logout" id="logoutBtn" title="Sign Out">
+            <i class="fa-solid fa-right-from-bracket"></i>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ── MAIN AREA ───────────────────────────────────────────── -->
+    <div class="main-area">
+
+      <!-- TOP BAR -->
+      <header class="topbar">
+        <div class="topbar-title" id="topbarTitle">
+          <span>Dashboard</span>
+        </div>
+
+        <div class="topbar-search" id="topbarSearchWrap">
+          <i class="fa-solid fa-magnifying-glass"></i>
+          <input
+            type="text"
+            id="globalSearch"
+            placeholder="Search patients..."
+            autocomplete="off"
+          />
+          <div class="search-dropdown" id="searchDropdown"></div>
+        </div>
+
+        <div class="topbar-spacer"></div>
+
+        <div class="topbar-clock">
+          <div id="clockTime" style="font-size:14px; font-weight:600; color:#e0e0e0;"></div>
+          <div id="clockDate" class="date" style="text-align:right;"></div>
+        </div>
+      </header>
+
+      <!-- CONTENT AREA -->
+      <main class="content-area" id="contentArea">
+
+        <!-- ── DASHBOARD ─────────────────────────────────────── -->
+        <div class="module-view active" id="view-dashboard">
+          <div class="stat-grid">
+            <div class="stat-card gold">
+              <div class="stat-icon"><i class="fa-solid fa-users"></i></div>
+              <div class="stat-value" id="stat-total-patients">—</div>
+              <div class="stat-label">Total Patients</div>
+            </div>
+            <div class="stat-card blue">
+              <div class="stat-icon"><i class="fa-solid fa-calendar-check"></i></div>
+              <div class="stat-value" id="stat-today-appts">—</div>
+              <div class="stat-label">Today's Appointments</div>
+            </div>
+            <div class="stat-card green">
+              <div class="stat-icon"><i class="fa-solid fa-dollar-sign"></i></div>
+              <div class="stat-value" id="stat-monthly-revenue">—</div>
+              <div class="stat-label">Monthly Revenue</div>
+            </div>
+            <div class="stat-card orange">
+              <div class="stat-icon"><i class="fa-solid fa-file-invoice"></i></div>
+              <div class="stat-value" id="stat-pending-claims">—</div>
+              <div class="stat-label">Pending Claims</div>
+            </div>
+          </div>
+
+          <div class="dashboard-grid">
+            <div class="card card-gold">
+              <div class="card-header">
+                <div class="card-title"><i class="fa-solid fa-calendar-day"></i> Today's Schedule</div>
+                <button class="btn btn-sm btn-outline" onclick="window.App.navigateTo('scheduling')">
+                  <i class="fa-solid fa-arrow-right"></i> Full View
+                </button>
+              </div>
+              <div class="card-body" id="dashTodayAppts">
+                <div class="table-empty">
+                  <i class="fa-regular fa-calendar"></i>
+                  <p>No appointments today</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="card card-gold">
+              <div class="card-header">
+                <div class="card-title"><i class="fa-solid fa-file-invoice-dollar"></i> Recent Claims</div>
+                <button class="btn btn-sm btn-outline" onclick="window.App.navigateTo('billing')">
+                  <i class="fa-solid fa-arrow-right"></i> View All
+                </button>
+              </div>
+              <div class="card-body" id="dashRecentClaims">
+                <div class="table-empty">
+                  <i class="fa-regular fa-file"></i>
+                  <p>No recent claims</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── PATIENTS ──────────────────────────────────────── -->
+        <div class="module-view" id="view-patients">
+          <!-- Rendered by patients.js -->
+        </div>
+
+        <!-- ── SCHEDULING ────────────────────────────────────── -->
+        <div class="module-view" id="view-scheduling">
+          <!-- Rendered by scheduling.js -->
+        </div>
+
+        <!-- ── BILLING ───────────────────────────────────────── -->
+        <div class="module-view" id="view-billing">
+          <!-- Rendered by billing.js -->
+        </div>
+
+        <!-- ── REFERRALS ─────────────────────────────────────── -->
+        <div class="module-view" id="view-referrals">
+          <!-- Rendered by referrals.js -->
+        </div>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- Toast container -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- Global confirm modal -->
+  <div class="modal-overlay" id="confirmModal">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <div class="modal-title"><i class="fa-solid fa-triangle-exclamation"></i> Confirm Action</div>
+        <button class="modal-close" id="confirmModalClose">&times;</button>
+      </div>
+      <div class="modal-body" style="text-align:center;">
+        <div class="confirm-icon"><i class="fa-solid fa-trash"></i></div>
+        <p id="confirmMessage" style="color: var(--text-secondary); font-size:14px;"></p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" id="confirmCancelBtn">Cancel</button>
+        <button class="btn btn-danger" id="confirmOkBtn">Delete</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- JS Modules (order matters) -->
+  <script src="js/app.js"></script>
+  <script src="js/patients.js"></script>
+  <script src="js/scheduling.js"></script>
+  <script src="js/billing.js"></script>
+  <script src="js/referrals.js"></script>
+</body>
+</html>

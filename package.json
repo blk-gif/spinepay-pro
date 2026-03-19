@@ -1,0 +1,31 @@
+{
+  "name": "spinepay-pro",
+  "version": "1.0.0",
+  "description": "SpinePay Pro - Practice Management for Walden Bailey Chiropractic",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder",
+    "postinstall": "electron-rebuild -f -w better-sqlite3"
+  },
+  "dependencies": {
+    "@electron/rebuild": "^4.0.3",
+    "better-sqlite3": "^9.4.3",
+    "stripe": "^14.18.0"
+  },
+  "devDependencies": {
+    "electron": "^29.4.6",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.waldenbailey.spinepay-pro",
+    "productName": "SpinePay Pro",
+    "win": {
+      "target": "nsis"
+    },
+    "mac": {
+      "target": "dmg"
+    }
+  }
+}
