@@ -156,22 +156,39 @@ window.App = (() => {
 
     // Update topbar title
     const titles = {
-      dashboard:   'Dashboard',
-      patients:    'Patients',
-      scheduling:  'Scheduling',
-      billing:     'Billing & Claims',
-      referrals:   'Referrals'
+      dashboard:  'Dashboard',
+      patients:   'Patients',
+      scheduling: 'Scheduling',
+      soap:       'SOAP Notes',
+      intake:     'Intake Forms',
+      billing:    'Billing & Claims',
+      eob:        'EOB & Receipts',
+      reports:    'Reports',
+      transport:  'Transportation',
+      pi:         'Personal Injury Cases',
+      waitlist:   'Waitlist',
+      referrals:  'Referrals',
+      timeclock:  'Time Clock',
+      reminders:  'Reminders'
     };
 
     $('topbarTitle').innerHTML = `<span>${titles[module] || module}</span>`;
 
-    // Trigger module load
     switch (module) {
-      case 'dashboard':   loadDashboard();                break;
-      case 'patients':    window.Patients?.render();      break;
-      case 'scheduling':  window.Scheduling?.render();    break;
-      case 'billing':     window.Billing?.render();       break;
-      case 'referrals':   window.Referrals?.render();     break;
+      case 'dashboard':   loadDashboard();                  break;
+      case 'patients':    window.Patients?.render();        break;
+      case 'scheduling':  window.Scheduling?.render();      break;
+      case 'soap':        window.SoapNotes?.render();       break;
+      case 'intake':      window.IntakeForms?.render();     break;
+      case 'billing':     window.Billing?.render();         break;
+      case 'eob':         window.EOB?.render();             break;
+      case 'reports':     window.Reports?.render();         break;
+      case 'transport':   window.Transport?.render();       break;
+      case 'pi':          window.PICases?.render();         break;
+      case 'waitlist':    window.Waitlist?.render();        break;
+      case 'referrals':   window.Referrals?.render();       break;
+      case 'timeclock':   window.TimeClock?.render();       break;
+      case 'reminders':   window.Reminders?.render();       break;
     }
   }
 
@@ -418,6 +435,12 @@ window.App = (() => {
   function init() {
     if (!checkAuth()) return;
     initUserUI();
+
+    // Hide admin-only nav items from staff
+    if (currentUser.role !== 'admin') {
+      document.querySelectorAll('.nav-item.admin-only').forEach(el => el.style.display = 'none');
+    }
+
     startClock();
     initGlobalSearch();
 

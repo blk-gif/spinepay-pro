@@ -41,8 +41,7 @@ contextBridge.exposeInMainWorld('api', {
     create: (data) => ipcRenderer.invoke('claims:create', data),
     update: (id, data) => ipcRenderer.invoke('claims:update', { id, data }),
     delete: (id) => ipcRenderer.invoke('claims:delete', id),
-    updateStatus: (id, status) => ipcRenderer.invoke('claims:update-status', { id, status }),
-    getAll: () => ipcRenderer.invoke('claims:get-all')
+    updateStatus: (id, status) => ipcRenderer.invoke('claims:update-status', { id, status })
   },
   payments: {
     getByPatient: (patientId) => ipcRenderer.invoke('payments:get-by-patient', patientId),
@@ -59,9 +58,78 @@ contextBridge.exposeInMainWorld('api', {
   },
   reports: {
     revenueSummary: (startDate, endDate) => ipcRenderer.invoke('reports:revenue-summary', { startDate, endDate }),
-    appointmentStats: (startDate, endDate) => ipcRenderer.invoke('reports:appointment-stats', { startDate, endDate })
+    appointmentStats: (startDate, endDate) => ipcRenderer.invoke('reports:appointment-stats', { startDate, endDate }),
+    fullDashboard: (startDate, endDate) => ipcRenderer.invoke('reports:full-dashboard', { startDate, endDate })
+  },
+  locations: {
+    getAll: () => ipcRenderer.invoke('locations:get-all'),
+    create: (data) => ipcRenderer.invoke('locations:create', data),
+    update: (id, data) => ipcRenderer.invoke('locations:update', { id, data })
+  },
+  intake: {
+    getByPatient: (patientId) => ipcRenderer.invoke('intake:get-by-patient', patientId),
+    getById: (id) => ipcRenderer.invoke('intake:get-by-id', id),
+    create: (data) => ipcRenderer.invoke('intake:create', data),
+    update: (id, data) => ipcRenderer.invoke('intake:update', { id, data })
+  },
+  insVerify: {
+    getByPatient: (patientId) => ipcRenderer.invoke('insverify:get-by-patient', patientId),
+    create: (data) => ipcRenderer.invoke('insverify:create', data),
+    update: (id, data) => ipcRenderer.invoke('insverify:update', { id, data })
+  },
+  soap: {
+    getByAppointment: (appointmentId) => ipcRenderer.invoke('soap:get-by-appointment', appointmentId),
+    getByPatient: (patientId) => ipcRenderer.invoke('soap:get-by-patient', patientId),
+    create: (data) => ipcRenderer.invoke('soap:create', data),
+    update: (id, data) => ipcRenderer.invoke('soap:update', { id, data })
+  },
+  eob: {
+    getAll: () => ipcRenderer.invoke('eob:get-all'),
+    getByPatient: (patientId) => ipcRenderer.invoke('eob:get-by-patient', patientId),
+    create: (data) => ipcRenderer.invoke('eob:create', data),
+    update: (id, data) => ipcRenderer.invoke('eob:update', { id, data })
+  },
+  reminders: {
+    getTemplates: () => ipcRenderer.invoke('reminders:get-templates'),
+    createTemplate: (data) => ipcRenderer.invoke('reminders:create-template', data),
+    updateTemplate: (id, data) => ipcRenderer.invoke('reminders:update-template', { id, data }),
+    getLog: () => ipcRenderer.invoke('reminders:get-log'),
+    send: (appointmentId, templateId) => ipcRenderer.invoke('reminders:send', { appointmentId, templateId })
+  },
+  waitlist: {
+    getAll: () => ipcRenderer.invoke('waitlist:get-all'),
+    create: (data) => ipcRenderer.invoke('waitlist:create', data),
+    updateStatus: (id, status) => ipcRenderer.invoke('waitlist:update-status', { id, status }),
+    delete: (id) => ipcRenderer.invoke('waitlist:delete', id)
+  },
+  transport: {
+    getAll: () => ipcRenderer.invoke('transport:get-all'),
+    getByPatient: (patientId) => ipcRenderer.invoke('transport:get-by-patient', patientId),
+    create: (data) => ipcRenderer.invoke('transport:create', data),
+    update: (id, data) => ipcRenderer.invoke('transport:update', { id, data }),
+    delete: (id) => ipcRenderer.invoke('transport:delete', id)
+  },
+  pi: {
+    getAll: () => ipcRenderer.invoke('pi:get-all'),
+    getByPatient: (patientId) => ipcRenderer.invoke('pi:get-by-patient', patientId),
+    create: (data) => ipcRenderer.invoke('pi:create', data),
+    update: (id, data) => ipcRenderer.invoke('pi:update', { id, data }),
+    delete: (id) => ipcRenderer.invoke('pi:delete', id)
+  },
+  timeclock: {
+    clockIn: (userId, notes) => ipcRenderer.invoke('timeclock:clock-in', { userId, notes }),
+    clockOut: (userId) => ipcRenderer.invoke('timeclock:clock-out', { userId }),
+    getStatus: (userId) => ipcRenderer.invoke('timeclock:get-status', userId),
+    getEntries: (userId, startDate, endDate) => ipcRenderer.invoke('timeclock:get-entries', { userId, startDate, endDate }),
+    approve: (id, approverId) => ipcRenderer.invoke('timeclock:approve', { id, approverId }),
+    update: (id, data) => ipcRenderer.invoke('timeclock:update', { id, data }),
+    getAllUsers: () => ipcRenderer.invoke('timeclock:get-all-users')
   },
   file: {
-    showOpenDialog: (options) => ipcRenderer.invoke('file:show-open-dialog', options)
+    showOpenDialog: (options) => ipcRenderer.invoke('file:show-open-dialog', options),
+    saveDialog: (defaultPath, content) => ipcRenderer.invoke('file:save-dialog', { defaultPath, content })
+  },
+  print: {
+    showDialog: () => ipcRenderer.invoke('print:show-dialog')
   }
 });

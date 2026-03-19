@@ -1494,3 +1494,96 @@ textarea.form-control { resize: vertical; min-height: 80px; line-height: 1.5; }
   .stat-grid { grid-template-columns: repeat(2, 1fr); }
   .dashboard-grid { grid-template-columns: 1fr; }
 }
+
+/* ── NEW MODULE STYLES (Features 1-12) ──────────────────── */
+
+/* SOAP Notes */
+.soap-field-group { margin-bottom: 1.2rem; }
+.soap-field-label { font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--gold); margin-bottom: .4rem; }
+.soap-field-value { background: var(--bg-mid); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; font-size: 13px; color: var(--text-secondary); line-height: 1.7; white-space: pre-wrap; min-height: 60px; }
+.soap-print-btn { margin-left: auto; }
+
+/* Intake Form */
+.intake-section-title { font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--gold); padding: 12px 0 8px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+.signature-pad { border: 2px dashed var(--gold-border); border-radius: var(--radius-sm); background: var(--bg-mid); padding: 20px; text-align: center; color: var(--text-muted); font-size: 13px; min-height: 80px; cursor: pointer; transition: border-color .2s; }
+.signature-pad:hover { border-color: var(--gold); }
+.signature-pad.signed { border-color: var(--success); border-style: solid; color: var(--success); }
+.checklist-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .4rem .8rem; }
+.checklist-item { display: flex; align-items: center; gap: .5rem; font-size: 12.5px; color: var(--text-secondary); cursor: pointer; }
+.checklist-item input[type="checkbox"] { accent-color: var(--gold); width: 14px; height: 14px; }
+
+/* Insurance Verification */
+.verify-card { background: var(--bg-mid); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 12px; }
+.verify-card.verified { border-color: rgba(46,204,113,.3); }
+.verify-card.auth-required { border-color: rgba(243,156,18,.3); }
+.verify-badge { font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; padding: 3px 8px; border-radius: 4px; }
+.verify-badge.verified { background: var(--success-bg); color: var(--success); }
+.verify-badge.auth-required { background: var(--warning-bg); color: var(--warning); }
+.verify-badge.pending { background: var(--info-bg); color: var(--info); }
+
+/* EOB Records */
+.eob-discrepancy { border-left: 3px solid var(--danger); }
+.eob-matched { border-left: 3px solid var(--success); }
+.eob-amount-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 12px 0; }
+.eob-amount-item { text-align: center; }
+.eob-amount-label { font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
+.eob-amount-value { font-size: 15px; font-weight: 700; color: var(--text-primary); }
+
+/* Transportation */
+.transport-status-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 20px; }
+.transport-status-badge.requested { background: var(--info-bg); color: var(--info); }
+.transport-status-badge.confirmed { background: var(--warning-bg); color: var(--warning); }
+.transport-status-badge.en-route { background: rgba(155,89,182,.15); color: #9b59b6; }
+.transport-status-badge.completed { background: var(--success-bg); color: var(--success); }
+.transport-status-badge.cancelled { background: var(--danger-bg); color: var(--danger); }
+.transport-card { background: var(--bg-mid); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 10px; transition: border-color .2s; }
+.transport-card:hover { border-color: var(--gold-border); }
+
+/* PI Cases */
+.pi-status-open { color: var(--warning); }
+.pi-status-settled { color: var(--success); }
+.pi-status-closed { color: var(--text-muted); }
+.pi-status-litigation { color: var(--danger); }
+.case-number-badge { font-family: monospace; font-size: 12px; background: var(--bg-elevated); padding: 2px 8px; border-radius: 4px; color: var(--gold); }
+
+/* Time Clock */
+.timeclock-hero { background: linear-gradient(135deg, var(--bg-card), var(--bg-elevated)); border: 1px solid var(--gold-border); border-radius: var(--radius-lg); padding: 32px; text-align: center; margin-bottom: 24px; }
+.timeclock-status { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .1em; margin-bottom: .5rem; }
+.timeclock-status.clocked-in { color: var(--success); }
+.timeclock-status.clocked-out { color: var(--text-muted); }
+.timeclock-time-display { font-size: 2.8rem; font-weight: 800; color: var(--gold); letter-spacing: -.02em; font-variant-numeric: tabular-nums; margin: .5rem 0 1.2rem; }
+.timesheet-row.unapproved { opacity: .75; }
+.timesheet-row.approved td:first-child { border-left: 3px solid var(--success); padding-left: 9px; }
+.hours-badge { font-size: 12px; font-weight: 700; color: var(--gold); background: var(--gold-glow); padding: 2px 8px; border-radius: 4px; }
+
+/* Reports */
+.reports-period-bar { display: flex; gap: .5rem; align-items: center; margin-bottom: 1.5rem; flex-wrap: wrap; }
+.chart-container { position: relative; height: 220px; width: 100%; }
+.report-stat-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 20px; }
+.report-stat { background: var(--bg-mid); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 20px; }
+.report-stat-value { font-size: 1.6rem; font-weight: 800; color: var(--gold); }
+.report-stat-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .07em; margin-top: 4px; }
+
+/* Waitlist */
+.waitlist-row-priority { border-left: 3px solid var(--gold); }
+.waitlist-empty-state { text-align: center; padding: 40px; }
+
+/* Reminders */
+.template-card { background: var(--bg-mid); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; margin-bottom: 12px; transition: border-color .2s; }
+.template-card:hover { border-color: var(--gold-border); }
+.template-card.inactive { opacity: .5; }
+.template-type-badge { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; padding: 2px 8px; border-radius: 4px; }
+.template-type-badge.sms { background: rgba(46,204,113,.15); color: var(--success); }
+.template-type-badge.email { background: var(--info-bg); color: var(--info); }
+
+/* Print styles */
+@media print {
+  .sidebar, .topbar, .btn, .modal-overlay { display: none !important; }
+  .module-view { display: block !important; padding: 0; }
+  body { background: white; color: black; }
+  .card { border: 1px solid #ccc; box-shadow: none; }
+}
+
+/* Location selector in topbar */
+#locationSelector { background: var(--bg-input); border: 1px solid var(--border); color: var(--text-primary); border-radius: var(--radius-sm); padding: 4px 10px; font-size: 12px; cursor: pointer; }
+#locationSelector:focus { border-color: var(--gold); outline: none; }

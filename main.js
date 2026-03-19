@@ -141,6 +141,163 @@ function initDatabase() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS locations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      address TEXT,
+      phone TEXT,
+      active INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS intake_forms (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      patient_id INTEGER NOT NULL,
+      appointment_id INTEGER,
+      personal_info TEXT,
+      insurance_info TEXT,
+      medical_history TEXT,
+      reason_for_visit TEXT,
+      current_medications TEXT,
+      allergies TEXT,
+      signature TEXT,
+      signed_at TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS insurance_verifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      patient_id INTEGER NOT NULL,
+      insurance_id INTEGER,
+      provider TEXT,
+      copay REAL DEFAULT 0,
+      deductible REAL DEFAULT 0,
+      deductible_met REAL DEFAULT 0,
+      coverage_limit REAL DEFAULT 0,
+      auth_required INTEGER DEFAULT 0,
+      auth_number TEXT,
+      status TEXT DEFAULT 'pending',
+      notes TEXT,
+      verified_at TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS soap_notes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      appointment_id INTEGER NOT NULL,
+      patient_id INTEGER NOT NULL,
+      subjective TEXT,
+      objective TEXT,
+      assessment TEXT,
+      plan TEXT,
+      diagnosis_codes TEXT,
+      procedure_codes TEXT,
+      created_by TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (appointment_id) REFERENCES appointments(id) ON DELETE CASCADE,
+      FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS eob_records (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      claim_id INTEGER,
+      patient_id INTEGER NOT NULL,
+      insurer TEXT,
+      billed_amount REAL DEFAULT 0,
+      allowed_amount REAL DEFAULT 0,
+      paid_amount REAL DEFAULT 0,
+      patient_responsibility REAL DEFAULT 0,
+      adjustment_reason TEXT,
+      status TEXT DEFAULT 'received',
+      received_date TEXT,
+      discrepancy_flag INTEGER DEFAULT 0,
+      discrepancy_notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS reminder_templates (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      type TEXT DEFAULT 'sms',
+      trigger_hours INTEGER DEFAULT 24,
+      subject TEXT,
+      body TEXT NOT NULL,
+      active INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS reminder_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      appointment_id INTEGER,
+      patient_id INTEGER,
+      template_id INTEGER,
+      type TEXT,
+      recipient TEXT,
+      status TEXT DEFAULT 'sent',
+      sent_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      error_message TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS waitlist (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      patient_id INTEGER NOT NULL,
+      desired_date TEXT,
+      desired_time TEXT,
+      location_id INTEGER,
+      notes TEXT,
+      status TEXT DEFAULT 'waiting',
+      notified_at TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS transportation (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      appointment_id INTEGER,
+      patient_id INTEGER NOT NULL,
+      pickup_address TEXT,
+      pickup_time TEXT,
+      dropoff_address TEXT,
+      driver_name TEXT,
+      driver_notes TEXT,
+      status TEXT DEFAULT 'requested',
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS pi_cases (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      patient_id INTEGER NOT NULL,
+      referral_id INTEGER,
+      accident_date TEXT,
+      accident_description TEXT,
+      attorney_name TEXT,
+      attorney_firm TEXT,
+      attorney_phone TEXT,
+      attorney_email TEXT,
+      case_number TEXT,
+      lien_amount REAL DEFAULT 0,
+      settlement_amount REAL DEFAULT 0,
+      case_status TEXT DEFAULT 'open',
+      notes TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS time_clock (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      clock_in DATETIME NOT NULL,
+      clock_out DATETIME,
+      notes TEXT,
+      approved INTEGER DEFAULT 0,
+      approved_by INTEGER,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   // Insert default users if not exists
@@ -154,6 +311,28 @@ function initDatabase() {
   if (!staffExists) {
     db.prepare(`INSERT INTO users (username, password_hash, role, full_name) VALUES (?, ?, ?, ?)`).run(
       'staff', hashPassword('staff123'), 'staff', 'Front Desk Staff'
+    );
+  }
+
+  // Seed default location
+  const locExists = db.prepare('SELECT id FROM locations WHERE name = ?').get('Walden Ave - Main Office');
+  if (!locExists) {
+    db.prepare(`INSERT INTO locations (name, address, phone) VALUES (?, ?, ?)`).run(
+      'Walden Ave - Main Office', '1086 Walden Ave Suite 1, Buffalo, NY 14211', '(716) 893-9200'
+    );
+  }
+
+  // Seed default reminder templates
+  const tmplCount = db.prepare('SELECT COUNT(*) as cnt FROM reminder_templates').get();
+  if (tmplCount.cnt === 0) {
+    db.prepare(`INSERT INTO reminder_templates (name, type, trigger_hours, subject, body) VALUES (?, ?, ?, ?, ?)`).run(
+      '24-Hour SMS Reminder', 'sms', 24, null,
+      'Hi {{patient_name}}, this is a reminder of your appointment at Walden Bailey Chiropractic tomorrow at {{time}}. Reply STOP to opt out.'
+    );
+    db.prepare(`INSERT INTO reminder_templates (name, type, trigger_hours, subject, body) VALUES (?, ?, ?, ?, ?)`).run(
+      '24-Hour Email Reminder', 'email', 24,
+      'Appointment Reminder - Walden Bailey Chiropractic',
+      'Dear {{patient_name}},\n\nThis is a friendly reminder of your appointment scheduled for {{date}} at {{time}}.\n\nLocation: 1086 Walden Ave Suite 1, Buffalo, NY 14211\nPhone: (716) 893-9200\n\nIf you need to reschedule, please call us at least 24 hours in advance.\n\nSee you soon!\nWalden Bailey Chiropractic'
     );
   }
 
@@ -630,6 +809,319 @@ ipcMain.handle('file:show-open-dialog', async (event, options) => {
   const filePath = result.filePaths[0];
   const content = fs.readFileSync(filePath, 'utf-8');
   return { filePath, content };
+});
+
+// ── LOCATIONS ──────────────────────────────────────────────────────────────
+ipcMain.handle('locations:get-all', () => {
+  return db.prepare('SELECT * FROM locations WHERE active = 1 ORDER BY name').all();
+});
+ipcMain.handle('locations:create', (event, data) => {
+  const result = db.prepare(`INSERT INTO locations (name, address, phone) VALUES (@name, @address, @phone)`).run(data);
+  return { success: true, id: result.lastInsertRowid };
+});
+ipcMain.handle('locations:update', (event, { id, data }) => {
+  db.prepare(`UPDATE locations SET name=@name, address=@address, phone=@phone, active=@active WHERE id=@id`).run({ ...data, id });
+  return { success: true };
+});
+
+// ── INTAKE FORMS ────────────────────────────────────────────────────────────
+ipcMain.handle('intake:get-by-patient', (event, patientId) => {
+  return db.prepare('SELECT * FROM intake_forms WHERE patient_id = ? ORDER BY created_at DESC').all(patientId);
+});
+ipcMain.handle('intake:get-by-id', (event, id) => {
+  return db.prepare('SELECT * FROM intake_forms WHERE id = ?').get(id);
+});
+ipcMain.handle('intake:create', (event, data) => {
+  const stmt = db.prepare(`
+    INSERT INTO intake_forms (patient_id, appointment_id, personal_info, insurance_info, medical_history, reason_for_visit, current_medications, allergies, signature, signed_at)
+    VALUES (@patient_id, @appointment_id, @personal_info, @insurance_info, @medical_history, @reason_for_visit, @current_medications, @allergies, @signature, @signed_at)
+  `);
+  const result = stmt.run(data);
+  return { success: true, id: result.lastInsertRowid };
+});
+ipcMain.handle('intake:update', (event, { id, data }) => {
+  const stmt = db.prepare(`
+    UPDATE intake_forms SET personal_info=@personal_info, insurance_info=@insurance_info, medical_history=@medical_history,
+    reason_for_visit=@reason_for_visit, current_medications=@current_medications, allergies=@allergies,
+    signature=@signature, signed_at=@signed_at WHERE id=@id
+  `);
+  stmt.run({ ...data, id });
+  return { success: true };
+});
+
+// ── INSURANCE VERIFICATION ──────────────────────────────────────────────────
+ipcMain.handle('insverify:get-by-patient', (event, patientId) => {
+  return db.prepare('SELECT * FROM insurance_verifications WHERE patient_id = ? ORDER BY created_at DESC').all(patientId);
+});
+ipcMain.handle('insverify:create', (event, data) => {
+  const result = db.prepare(`
+    INSERT INTO insurance_verifications (patient_id, insurance_id, provider, copay, deductible, deductible_met, coverage_limit, auth_required, auth_number, status, notes, verified_at)
+    VALUES (@patient_id, @insurance_id, @provider, @copay, @deductible, @deductible_met, @coverage_limit, @auth_required, @auth_number, @status, @notes, @verified_at)
+  `).run({ status: 'verified', verified_at: new Date().toISOString().split('T')[0], ...data });
+  return { success: true, id: result.lastInsertRowid };
+});
+ipcMain.handle('insverify:update', (event, { id, data }) => {
+  db.prepare(`
+    UPDATE insurance_verifications SET copay=@copay, deductible=@deductible, deductible_met=@deductible_met,
+    coverage_limit=@coverage_limit, auth_required=@auth_required, auth_number=@auth_number,
+    status=@status, notes=@notes WHERE id=@id
+  `).run({ ...data, id });
+  return { success: true };
+});
+
+// ── SOAP NOTES ──────────────────────────────────────────────────────────────
+ipcMain.handle('soap:get-by-appointment', (event, appointmentId) => {
+  return db.prepare('SELECT * FROM soap_notes WHERE appointment_id = ?').get(appointmentId);
+});
+ipcMain.handle('soap:get-by-patient', (event, patientId) => {
+  return db.prepare(`
+    SELECT s.*, a.date, a.time, a.type as appt_type
+    FROM soap_notes s JOIN appointments a ON s.appointment_id = a.id
+    WHERE s.patient_id = ? ORDER BY a.date DESC
+  `).all(patientId);
+});
+ipcMain.handle('soap:create', (event, data) => {
+  const result = db.prepare(`
+    INSERT INTO soap_notes (appointment_id, patient_id, subjective, objective, assessment, plan, diagnosis_codes, procedure_codes, created_by)
+    VALUES (@appointment_id, @patient_id, @subjective, @objective, @assessment, @plan, @diagnosis_codes, @procedure_codes, @created_by)
+  `).run(data);
+  return { success: true, id: result.lastInsertRowid };
+});
+ipcMain.handle('soap:update', (event, { id, data }) => {
+  db.prepare(`
+    UPDATE soap_notes SET subjective=@subjective, objective=@objective, assessment=@assessment,
+    plan=@plan, diagnosis_codes=@diagnosis_codes, procedure_codes=@procedure_codes WHERE id=@id
+  `).run({ ...data, id });
+  return { success: true };
+});
+
+// ── EOB RECORDS ─────────────────────────────────────────────────────────────
+ipcMain.handle('eob:get-all', () => {
+  return db.prepare(`
+    SELECT e.*, p.first_name, p.last_name, c.claim_number
+    FROM eob_records e
+    JOIN patients p ON e.patient_id = p.id
+    LEFT JOIN claims c ON e.claim_id = c.id
+    ORDER BY e.received_date DESC, e.created_at DESC
+  `).all();
+});
+ipcMain.handle('eob:get-by-patient', (event, patientId) => {
+  return db.prepare('SELECT * FROM eob_records WHERE patient_id = ? ORDER BY received_date DESC').all(patientId);
+});
+ipcMain.handle('eob:create', (event, data) => {
+  // Auto-detect discrepancy
+  if (data.claim_id && !data.discrepancy_flag) {
+    const claim = db.prepare('SELECT * FROM claims WHERE id = ?').get(data.claim_id);
+    if (claim && Math.abs(claim.amount - data.billed_amount) > 0.01) {
+      data.discrepancy_flag = 1;
+      data.discrepancy_notes = data.discrepancy_notes || `Billed amount mismatch: claim shows $${claim.amount}, EOB shows $${data.billed_amount}`;
+    }
+  }
+  const result = db.prepare(`
+    INSERT INTO eob_records (claim_id, patient_id, insurer, billed_amount, allowed_amount, paid_amount, patient_responsibility, adjustment_reason, status, received_date, discrepancy_flag, discrepancy_notes)
+    VALUES (@claim_id, @patient_id, @insurer, @billed_amount, @allowed_amount, @paid_amount, @patient_responsibility, @adjustment_reason, @status, @received_date, @discrepancy_flag, @discrepancy_notes)
+  `).run({ discrepancy_flag: 0, ...data });
+  return { success: true, id: result.lastInsertRowid };
+});
+ipcMain.handle('eob:update', (event, { id, data }) => {
+  db.prepare(`
+    UPDATE eob_records SET allowed_amount=@allowed_amount, paid_amount=@paid_amount,
+    patient_responsibility=@patient_responsibility, adjustment_reason=@adjustment_reason,
+    status=@status, discrepancy_flag=@discrepancy_flag, discrepancy_notes=@discrepancy_notes WHERE id=@id
+  `).run({ ...data, id });
+  return { success: true };
+});
+
+// ── REMINDERS ───────────────────────────────────────────────────────────────
+ipcMain.handle('reminders:get-templates', () => {
+  return db.prepare('SELECT * FROM reminder_templates ORDER BY type, trigger_hours').all();
+});
+ipcMain.handle('reminders:update-template', (event, { id, data }) => {
+  db.prepare(`UPDATE reminder_templates SET name=@name, type=@type, trigger_hours=@trigger_hours, subject=@subject, body=@body, active=@active WHERE id=@id`).run({ ...data, id });
+  return { success: true };
+});
+ipcMain.handle('reminders:create-template', (event, data) => {
+  const result = db.prepare(`INSERT INTO reminder_templates (name, type, trigger_hours, subject, body, active) VALUES (@name, @type, @trigger_hours, @subject, @body, @active)`).run({ active: 1, ...data });
+  return { success: true, id: result.lastInsertRowid };
+});
+ipcMain.handle('reminders:get-log', () => {
+  return db.prepare(`
+    SELECT l.*, p.first_name, p.last_name
+    FROM reminder_log l LEFT JOIN patients p ON l.patient_id = p.id
+    ORDER BY l.sent_at DESC LIMIT 200
+  `).all();
+});
+ipcMain.handle('reminders:send', async (event, { appointmentId, templateId }) => {
+  try {
+    const appt = db.prepare(`SELECT a.*, p.first_name, p.last_name, p.phone, p.email FROM appointments a JOIN patients p ON a.patient_id = p.id WHERE a.id = ?`).get(appointmentId);
+    const template = db.prepare('SELECT * FROM reminder_templates WHERE id = ?').get(templateId);
+    if (!appt || !template) return { success: false, error: 'Not found' };
+
+    const body = template.body
+      .replace(/\{\{patient_name\}\}/g, `${appt.first_name} ${appt.last_name}`)
+      .replace(/\{\{date\}\}/g, appt.date)
+      .replace(/\{\{time\}\}/g, appt.time);
+
+    // Log the reminder (actual sending requires Twilio/SendGrid credentials in env)
+    db.prepare(`INSERT INTO reminder_log (appointment_id, patient_id, template_id, type, recipient, status) VALUES (?, ?, ?, ?, ?, ?)`).run(
+      appointmentId, appt.patient_id, templateId, template.type,
+      template.type === 'sms' ? appt.phone : appt.email, 'sent'
+    );
+    return { success: true, message: body, recipient: template.type === 'sms' ? appt.phone : appt.email };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
+
+// ── WAITLIST ─────────────────────────────────────────────────────────────────
+ipcMain.handle('waitlist:get-all', () => {
+  return db.prepare(`
+    SELECT w.*, p.first_name, p.last_name, p.phone, p.email
+    FROM waitlist w JOIN patients p ON w.patient_id = p.id
+    WHERE w.status = 'waiting'
+    ORDER BY w.created_at ASC
+  `).all();
+});
+ipcMain.handle('waitlist:create', (event, data) => {
+  const result = db.prepare(`INSERT INTO waitlist (patient_id, desired_date, desired_time, location_id, notes, status) VALUES (@patient_id, @desired_date, @desired_time, @location_id, @notes, 'waiting')`).run(data);
+  return { success: true, id: result.lastInsertRowid };
+});
+ipcMain.handle('waitlist:update-status', (event, { id, status }) => {
+  const notifiedAt = status === 'notified' ? new Date().toISOString().split('T')[0] : null;
+  db.prepare('UPDATE waitlist SET status = ?, notified_at = ? WHERE id = ?').run(status, notifiedAt, id);
+  return { success: true };
+});
+ipcMain.handle('waitlist:delete', (event, id) => {
+  db.prepare('DELETE FROM waitlist WHERE id = ?').run(id);
+  return { success: true };
+});
+
+// ── TRANSPORTATION ───────────────────────────────────────────────────────────
+ipcMain.handle('transport:get-all', () => {
+  return db.prepare(`
+    SELECT t.*, p.first_name, p.last_name, p.phone, a.date, a.time
+    FROM transportation t
+    JOIN patients p ON t.patient_id = p.id
+    LEFT JOIN appointments a ON t.appointment_id = a.id
+    ORDER BY a.date DESC, a.time ASC
+  `).all();
+});
+ipcMain.handle('transport:get-by-patient', (event, patientId) => {
+  return db.prepare('SELECT * FROM transportation WHERE patient_id = ? ORDER BY created_at DESC').all(patientId);
+});
+ipcMain.handle('transport:create', (event, data) => {
+  const result = db.prepare(`
+    INSERT INTO transportation (appointment_id, patient_id, pickup_address, pickup_time, dropoff_address, driver_name, driver_notes, status)
+    VALUES (@appointment_id, @patient_id, @pickup_address, @pickup_time, @dropoff_address, @driver_name, @driver_notes, @status)
+  `).run({ status: 'requested', ...data });
+  return { success: true, id: result.lastInsertRowid };
+});
+ipcMain.handle('transport:update', (event, { id, data }) => {
+  db.prepare(`
+    UPDATE transportation SET pickup_address=@pickup_address, pickup_time=@pickup_time, dropoff_address=@dropoff_address,
+    driver_name=@driver_name, driver_notes=@driver_notes, status=@status WHERE id=@id
+  `).run({ ...data, id });
+  return { success: true };
+});
+ipcMain.handle('transport:delete', (event, id) => {
+  db.prepare('DELETE FROM transportation WHERE id = ?').run(id);
+  return { success: true };
+});
+
+// ── PI CASES ─────────────────────────────────────────────────────────────────
+ipcMain.handle('pi:get-all', () => {
+  return db.prepare(`
+    SELECT pi.*, p.first_name, p.last_name, p.phone
+    FROM pi_cases pi JOIN patients p ON pi.patient_id = p.id
+    ORDER BY pi.created_at DESC
+  `).all();
+});
+ipcMain.handle('pi:get-by-patient', (event, patientId) => {
+  return db.prepare('SELECT * FROM pi_cases WHERE patient_id = ? ORDER BY created_at DESC').all(patientId);
+});
+ipcMain.handle('pi:create', (event, data) => {
+  const result = db.prepare(`
+    INSERT INTO pi_cases (patient_id, referral_id, accident_date, accident_description, attorney_name, attorney_firm, attorney_phone, attorney_email, case_number, lien_amount, settlement_amount, case_status, notes)
+    VALUES (@patient_id, @referral_id, @accident_date, @accident_description, @attorney_name, @attorney_firm, @attorney_phone, @attorney_email, @case_number, @lien_amount, @settlement_amount, @case_status, @notes)
+  `).run({ case_status: 'open', lien_amount: 0, settlement_amount: 0, ...data });
+  return { success: true, id: result.lastInsertRowid };
+});
+ipcMain.handle('pi:update', (event, { id, data }) => {
+  db.prepare(`
+    UPDATE pi_cases SET accident_date=@accident_date, accident_description=@accident_description, attorney_name=@attorney_name,
+    attorney_firm=@attorney_firm, attorney_phone=@attorney_phone, attorney_email=@attorney_email, case_number=@case_number,
+    lien_amount=@lien_amount, settlement_amount=@settlement_amount, case_status=@case_status, notes=@notes WHERE id=@id
+  `).run({ ...data, id });
+  return { success: true };
+});
+ipcMain.handle('pi:delete', (event, id) => {
+  db.prepare('DELETE FROM pi_cases WHERE id = ?').run(id);
+  return { success: true };
+});
+
+// ── TIME CLOCK ───────────────────────────────────────────────────────────────
+ipcMain.handle('timeclock:clock-in', (event, { userId, notes }) => {
+  // Check not already clocked in
+  const open = db.prepare('SELECT id FROM time_clock WHERE user_id = ? AND clock_out IS NULL').get(userId);
+  if (open) return { success: false, error: 'Already clocked in' };
+  const result = db.prepare(`INSERT INTO time_clock (user_id, clock_in, notes) VALUES (?, CURRENT_TIMESTAMP, ?)`).run(userId, notes || null);
+  return { success: true, id: result.lastInsertRowid };
+});
+ipcMain.handle('timeclock:clock-out', (event, { userId }) => {
+  const open = db.prepare('SELECT id FROM time_clock WHERE user_id = ? AND clock_out IS NULL').get(userId);
+  if (!open) return { success: false, error: 'Not clocked in' };
+  db.prepare('UPDATE time_clock SET clock_out = CURRENT_TIMESTAMP WHERE id = ?').run(open.id);
+  return { success: true };
+});
+ipcMain.handle('timeclock:get-status', (event, userId) => {
+  return db.prepare('SELECT * FROM time_clock WHERE user_id = ? AND clock_out IS NULL').get(userId);
+});
+ipcMain.handle('timeclock:get-entries', (event, { userId, startDate, endDate }) => {
+  const query = userId
+    ? 'SELECT t.*, u.full_name, u.username FROM time_clock t JOIN users u ON t.user_id = u.id WHERE t.user_id = ? AND date(t.clock_in) BETWEEN ? AND ? ORDER BY t.clock_in DESC'
+    : 'SELECT t.*, u.full_name, u.username FROM time_clock t JOIN users u ON t.user_id = u.id WHERE date(t.clock_in) BETWEEN ? AND ? ORDER BY t.clock_in DESC';
+  return userId
+    ? db.prepare(query).all(userId, startDate, endDate)
+    : db.prepare(query).all(startDate, endDate);
+});
+ipcMain.handle('timeclock:approve', (event, { id, approverId }) => {
+  db.prepare('UPDATE time_clock SET approved = 1, approved_by = ? WHERE id = ?').run(approverId, id);
+  return { success: true };
+});
+ipcMain.handle('timeclock:update', (event, { id, data }) => {
+  db.prepare('UPDATE time_clock SET clock_in=@clock_in, clock_out=@clock_out, notes=@notes WHERE id=@id').run({ ...data, id });
+  return { success: true };
+});
+ipcMain.handle('timeclock:get-all-users', () => {
+  return db.prepare('SELECT id, username, full_name, role FROM users ORDER BY full_name').all();
+});
+
+// ── REPORTS (extended) ───────────────────────────────────────────────────────
+ipcMain.handle('reports:full-dashboard', (event, { startDate, endDate }) => {
+  const revenue = db.prepare(`SELECT SUM(amount) as total FROM payments WHERE date BETWEEN ? AND ?`).get(startDate, endDate);
+  const claims = db.prepare(`SELECT SUM(amount) as billed, SUM(paid_amount) as collected, COUNT(*) as total, SUM(CASE WHEN status='paid' THEN 1 ELSE 0 END) as paid_count, SUM(CASE WHEN status='denied' THEN 1 ELSE 0 END) as denied_count FROM claims WHERE service_date BETWEEN ? AND ?`).get(startDate, endDate);
+  const appts = db.prepare(`SELECT status, COUNT(*) as count FROM appointments WHERE date BETWEEN ? AND ? GROUP BY status`).all(startDate, endDate);
+  const insurers = db.prepare(`SELECT insurer, COUNT(*) as count, SUM(amount) as total FROM claims WHERE service_date BETWEEN ? AND ? GROUP BY insurer ORDER BY total DESC`).all(startDate, endDate);
+  const referrals = db.prepare(`SELECT status, COUNT(*) as count FROM referrals WHERE date(created_at) BETWEEN ? AND ? GROUP BY status`).all(startDate, endDate);
+  const monthly = db.prepare(`SELECT strftime('%Y-%m', date) as month, SUM(amount) as revenue FROM payments WHERE date BETWEEN ? AND ? GROUP BY month ORDER BY month`).all(startDate, endDate);
+  const newPatients = db.prepare(`SELECT COUNT(*) as count FROM patients WHERE date(created_at) BETWEEN ? AND ?`).get(startDate, endDate);
+  const piCases = db.prepare(`SELECT case_status, COUNT(*) as count, SUM(lien_amount) as total_lien FROM pi_cases GROUP BY case_status`).all();
+  return { revenue: revenue.total || 0, claims, appts, insurers, referrals, monthly, newPatients: newPatients.count, piCases };
+});
+
+// ── PRINT / EXPORT ───────────────────────────────────────────────────────────
+ipcMain.handle('print:show-dialog', async () => {
+  const result = await mainWindow.webContents.print({}, (success) => success);
+  return { success: true };
+});
+ipcMain.handle('file:save-dialog', async (event, { defaultPath, content }) => {
+  const result = await dialog.showSaveDialog(mainWindow, {
+    defaultPath: defaultPath || 'export.html',
+    filters: [{ name: 'HTML Files', extensions: ['html'] }, { name: 'All Files', extensions: ['*'] }]
+  });
+  if (result.canceled) return { success: false };
+  fs.writeFileSync(result.filePath, content, 'utf-8');
+  return { success: true, filePath: result.filePath };
 });
 
 // APP LIFECYCLE
