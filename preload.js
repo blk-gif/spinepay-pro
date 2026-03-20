@@ -131,8 +131,9 @@ contextBridge.exposeInMainWorld('api', {
     getAllUsers: () => ipcRenderer.invoke('timeclock:get-all-users')
   },
   speech: {
-    transcribe: (audioData) => ipcRenderer.invoke('speech:transcribe', audioData),
-    status:     ()          => ipcRenderer.invoke('speech:status')
+    transcribe:      (audioData) => ipcRenderer.invoke('speech:transcribe', audioData),
+    status:          ()          => ipcRenderer.invoke('speech:status'),
+    onProgress: (cb) => ipcRenderer.on('speech:progress', (_e, data) => cb(data))
   },
   hcfa: {
     getByPatient: (patientId) => ipcRenderer.invoke('hcfa:get-by-patient', patientId),

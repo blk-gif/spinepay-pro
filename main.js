@@ -1229,7 +1229,12 @@ ipcMain.handle('speech:transcribe', async (event, audioData) => {
       whisperPipeline = await pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny.en', {
         chunk_length_s: 30,
         stride_length_s: 5,
-        return_timestamps: false
+        return_timestamps: false,
+        progress_callback: (p) => {
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('speech:progress', p);
+          }
+        }
       });
       whisperLoading = false;
     }
