@@ -4,10 +4,12 @@ const crypto = require('crypto');
 const fs = require('fs');
 const { runMigrations } = require('./db-migrations');
 
-// Ensure Chromium uses English for speech and automatically grants media-stream
-// permission prompts without a system dialog (works alongside our session handler)
+// Ensure Chromium uses English for speech recognition
 app.commandLine.appendSwitch('lang', 'en-US');
-app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
+// Do NOT set use-fake-ui-for-media-stream — it routes the mic to a silent fake device
+// Ensure WebRTC uses the real Windows audio device
+app.commandLine.appendSwitch('enable-webrtc-hide-local-ips-with-mdns', 'false');
+app.commandLine.appendSwitch('use-fake-device-for-media-stream', 'false');
 
 let mainWindow;
 let db;

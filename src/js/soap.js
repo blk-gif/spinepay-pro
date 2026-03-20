@@ -10,11 +10,14 @@ window.SoapNotes = (() => {
   let editingNoteId = null;
   let viewMode      = 'list';
   let currentNote   = null;
-  let mediaRecorder  = null;
-  let audioChunks    = [];
-  let isRecording    = false;
-  let recordingField = null;   // fieldId for single-field mode, null = global
-  let globalDictMode = false;
+  let activeRecognition = null;
+  let isRecording       = false;
+  let recordingField    = null;   // fieldId for single-field mode, null = global
+  let globalDictMode    = false;
+  let analyserCtx       = null;
+  let analyserNode      = null;
+  let levelStream       = null;
+  let levelTimer        = null;
   let currentHcfaData = null;
   let currentHcfaId   = null;
 
@@ -114,16 +117,31 @@ window.SoapNotes = (() => {
       <!-- New / Edit SOAP Note Modal -->
       <div class="modal-overlay" id="soapModal">
         <div class="modal modal-lg">
-          <div class="modal-header" style="gap:8px;">
+          <div class="modal-header" style="gap:8px;flex-wrap:wrap;">
             <div class="modal-title"><i class="fa-solid fa-notes-medical"></i> <span id="soapModalTitle">New SOAP Note</span></div>
+            <!-- Mic device selector -->
+            <select id="soapMicSelect"
+              style="margin-left:auto;background:#1a1a1a;color:var(--gold);border:1px solid rgba(212,175,55,0.4);border-radius:6px;padding:3px 8px;font-size:11px;cursor:pointer;max-width:160px;"
+              title="Select microphone input device">
+              <option value="">Default Mic</option>
+            </select>
+            <!-- Mic test button -->
+            <button type="button" id="micTestBtn"
+              style="background:rgba(212,175,55,0.1);color:var(--gold);border:1px solid rgba(212,175,55,0.3);border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;white-space:nowrap;"
+              title="Record 3 seconds and play back to verify your mic is working">
+              <i class="fa-solid fa-headphones"></i> Test Mic
+            </button>
             <button type="button" id="dictateAllBtn"
-              style="margin-left:auto;background:rgba(212,175,55,0.15);color:var(--gold);border:1px solid rgba(212,175,55,0.4);border-radius:6px;padding:4px 12px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;"
+              style="background:rgba(212,175,55,0.15);color:var(--gold);border:1px solid rgba(212,175,55,0.4);border-radius:6px;padding:4px 12px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px;white-space:nowrap;"
               title="Dictate all four SOAP fields — say Subjective, Objective, Assessment, or Plan to switch sections">
               <i class="fa-solid fa-microphone"></i> Dictate All Fields
             </button>
             <div id="dictateStatus" style="display:none;align-items:center;gap:6px;padding:4px 12px;background:rgba(220,38,38,0.15);border:1px solid #dc2626;border-radius:20px;font-size:11px;color:#ef4444;font-weight:700;white-space:nowrap;">
               <span style="width:8px;height:8px;border-radius:50%;background:#ef4444;animation:pulse 1s infinite;display:inline-block;flex-shrink:0;"></span>
-              <span id="dictateStatusText">RECORDING</span>
+              <span id="dictateStatusText">LISTENING</span>
+              <div id="soapLevelTrack" style="width:50px;height:5px;background:rgba(255,255,255,0.12);border-radius:3px;overflow:hidden;flex-shrink:0;">
+                <div id="soapLevelBar" style="height:100%;width:0%;border-radius:3px;transition:width 60ms linear;background:#ef4444;"></div>
+              </div>
             </div>
             <button class="modal-close" id="soapModalClose">&times;</button>
           </div>
@@ -1144,156 +1162,138 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
     win.document.close();
   }
 
-  // ── Voice Dictation (offline — MediaRecorder → Whisper in main process) ────────
-  // The Web Speech API always requires Google's servers (network error when offline).
-  // This implementation records audio with MediaRecorder, resamples to 16 kHz mono,
-  // and sends it to the Electron main process where Whisper runs locally via
-  // @xenova/transformers — no internet required after the first model download.
+  // ── Voice Dictation (Web Speech API — continuous, silent no-speech restart) ─────
 
-  async function startDictation(fieldId) {
-    if (isRecording) { await stopRecording(); return; }
+  function startDictation(fieldId) {
+    if (isRecording) { stopDictation(); return; }
     recordingField = fieldId;
     globalDictMode = false;
-    const ok = await beginRecording();
-    if (!ok) return;
+    const started = beginSpeech((text) => {
+      const ta = document.getElementById(recordingField);
+      if (ta && text) {
+        const existing = ta.value.trimEnd();
+        ta.value = existing ? existing + ' ' + text : text;
+        ta.scrollTop = ta.scrollHeight;
+      }
+    });
+    if (!started) return;
     updateMicUI(fieldId, true);
-    showDictateStatus('REC \u25cf ' + fieldId.replace('soap', '').toUpperCase() + ' \u2014 click mic to stop');
+    showDictateStatus('LISTENING \u2014 click mic to stop');
   }
 
-  async function startGlobalDictation() {
-    if (isRecording) { await stopRecording(); return; }
+  function startGlobalDictation() {
+    if (isRecording) { stopDictation(); return; }
     recordingField = null;
     globalDictMode = true;
-    const ok = await beginRecording();
-    if (!ok) return;
+    const started = beginSpeech((text) => {
+      if (text) distributeTranscript(text);
+    });
+    if (!started) return;
     const dictBtn = document.getElementById('dictateAllBtn');
     if (dictBtn) {
       dictBtn.style.background  = 'rgba(220,38,38,0.15)';
       dictBtn.style.borderColor = '#dc2626';
       dictBtn.style.color       = '#ef4444';
-      dictBtn.innerHTML = '<i class="fa-solid fa-stop"></i> Stop & Transcribe';
+      dictBtn.innerHTML = '<i class="fa-solid fa-stop"></i> Stop Dictation';
     }
     updateMicUI('soapSubjective', true);
-    showDictateStatus('REC \u25cf ALL FIELDS \u2014 say "Subjective / Objective / Assessment / Plan" to separate, click Stop when done');
+    showDictateStatus('LISTENING \u2014 say "Subjective / Objective / Assessment / Plan" to switch fields');
   }
 
-  async function beginRecording() {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      isRecording = true;
-      audioChunks = [];
-
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : (MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '');
-
-      mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-
-      mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) audioChunks.push(e.data); };
-      mediaRecorder.onstop = () => { stream.getTracks().forEach(t => t.stop()); processRecording(); };
-      mediaRecorder.start(200);
-
-      // Safety limit: 5 minutes
-      setTimeout(() => { if (isRecording) stopRecording(); }, 300000);
-      return true;
-    } catch (err) {
-      isRecording = false;
-      const msgs = {
-        NotAllowedError:  'Microphone access denied. Check system permissions.',
-        NotFoundError:    'No microphone found. Please connect a microphone.',
-        NotReadableError: 'Microphone is in use by another application.'
-      };
-      toast(msgs[err.name] || 'Microphone error: ' + err.message, 'error');
+  function beginSpeech(onFinalResult) {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      toast('Speech recognition is not supported in this browser.', 'error');
       return false;
     }
-  }
 
-  async function stopRecording() {
-    isRecording = false;
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-      mediaRecorder.stop(); // triggers onstop → processRecording
-    } else {
-      resetDictateUI();
-    }
-  }
+    const rec = new SpeechRecognition();
+    rec.continuous      = true;
+    rec.interimResults  = true;
+    rec.maxAlternatives = 1;
+    rec.lang            = 'en-US';
 
-  async function processRecording() {
-    showDictateStatus('TRANSCRIBING \u2014 please wait\u2026');
+    rec.onresult = (event) => {
+      let finalText = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        if (event.results[i].isFinal) finalText += event.results[i][0].transcript;
+      }
+      if (finalText.trim()) onFinalResult(finalText.trim());
+    };
+
+    rec.onerror = (event) => {
+      if (event.error === 'no-speech') {
+        // Silently restart — keep button in active/red state
+        try { rec.stop(); } catch (_) {}
+        setTimeout(() => { if (isRecording) { try { rec.start(); } catch (_) {} } }, 300);
+        return;
+      }
+      if (event.error === 'aborted') return;
+      toast('Microphone error: ' + event.error, 'error');
+      stopDictation();
+    };
+
+    rec.onend = () => {
+      // Auto-restart unless the user explicitly stopped
+      if (isRecording) {
+        setTimeout(() => { try { rec.start(); } catch (_) {} }, 300);
+      }
+    };
 
     try {
-      const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
-
-      if (blob.size < 500) {
-        toast('No audio captured. Make sure your microphone is working.', 'warning');
-        resetDictateUI();
-        return;
-      }
-
-      // Decode and resample to 16 kHz mono (Whisper requirement)
-      const arrayBuffer = await blob.arrayBuffer();
-      const srcCtx      = new AudioContext();
-      let srcBuffer;
-      try {
-        srcBuffer = await srcCtx.decodeAudioData(arrayBuffer);
-      } catch (_) {
-        toast('Could not decode audio. Please try again.', 'error');
-        resetDictateUI();
-        await srcCtx.close();
-        return;
-      }
-      await srcCtx.close();
-
-      const TARGET_RATE = 16000;
-      const offCtx = new OfflineAudioContext(
-        1,
-        Math.ceil(srcBuffer.duration * TARGET_RATE),
-        TARGET_RATE
-      );
-      const src = offCtx.createBufferSource();
-      src.buffer = srcBuffer;
-      src.connect(offCtx.destination);
-      src.start(0);
-      const resampled = await offCtx.startRendering();
-      const float32   = resampled.getChannelData(0);
-
-      // Send to main process for Whisper transcription
-      const result = await window.api.speech.transcribe(float32);
-
-      if (!result.success) {
-        const errMsg = result.error || 'Unknown error';
-        if (errMsg.includes('loading') || errMsg.includes('wait')) {
-          toast('Speech model is loading (first use only). Please try again in a few seconds.', 'info');
-        } else {
-          toast('Transcription failed: ' + errMsg, 'error');
-        }
-        resetDictateUI();
-        return;
-      }
-
-      const text = (result.text || '').trim();
-      if (!text) {
-        toast('No speech detected. Try speaking more clearly into the microphone.', 'warning');
-        resetDictateUI();
-        return;
-      }
-
-      if (globalDictMode) {
-        distributeTranscript(text);
-      } else {
-        const ta = document.getElementById(recordingField);
-        if (ta) {
-          const existing = ta.value.trimEnd();
-          ta.value = existing ? existing + ' ' + text : text;
-          ta.scrollTop = ta.scrollHeight;
-        }
-      }
-
-      toast('Transcription complete', 'success');
+      rec.start();
     } catch (err) {
-      toast('Transcription error: ' + err.message, 'error');
-    } finally {
-      resetDictateUI();
+      toast('Could not start microphone: ' + err.message, 'error');
+      return false;
     }
+
+    activeRecognition = rec;
+    isRecording       = true;
+    startLevelMeter();
+    return true;
+  }
+
+  function getSelectedMicId() {
+    return localStorage.getItem('soapMicDeviceId') || '';
+  }
+
+  // AudioContext analyser — animates the level bar in the status pill
+  function startLevelMeter() {
+    const deviceId = getSelectedMicId();
+    const audioConstraint = deviceId
+      ? { deviceId: { exact: deviceId } }
+      : true;
+    navigator.mediaDevices.getUserMedia({ audio: audioConstraint, video: false })
+      .then((stream) => {
+        levelStream  = stream;
+        analyserCtx  = new AudioContext();
+        analyserNode = analyserCtx.createAnalyser();
+        analyserNode.fftSize = 256;
+        analyserCtx.createMediaStreamSource(stream).connect(analyserNode);
+        const dataArray = new Uint8Array(analyserNode.frequencyBinCount);
+        function draw() {
+          if (!isRecording) return;
+          analyserNode.getByteFrequencyData(dataArray);
+          const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+          const pct = Math.min(100, Math.round((avg / 128) * 100));
+          const bar = document.getElementById('soapLevelBar');
+          if (bar) {
+            bar.style.width      = pct + '%';
+            bar.style.background = pct > 60 ? '#22c55e' : pct > 20 ? '#eab308' : '#ef4444';
+          }
+          levelTimer = requestAnimationFrame(draw);
+        }
+        draw();
+      })
+      .catch(() => { /* level meter is optional; mic still works for speech */ });
+  }
+
+  function stopLevelMeter() {
+    if (levelTimer)  { cancelAnimationFrame(levelTimer); levelTimer = null; }
+    if (analyserCtx) { analyserCtx.close().catch(() => {}); analyserCtx = null; analyserNode = null; }
+    if (levelStream) { levelStream.getTracks().forEach(t => t.stop()); levelStream = null; }
+    const bar = document.getElementById('soapLevelBar');
+    if (bar) bar.style.width = '0%';
   }
 
   // Parse SOAP section keywords from a global transcript and route text to fields
@@ -1332,12 +1332,16 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
 
   // Called when modal closes or save is triggered
   function stopDictation() {
-    if (isRecording) stopRecording();
-    else resetDictateUI();
+    isRecording = false;
+    if (activeRecognition) {
+      try { activeRecognition.stop(); } catch (_) {}
+      activeRecognition = null;
+    }
+    stopLevelMeter();
+    resetDictateUI();
   }
 
   function resetDictateUI() {
-    isRecording    = false;
     globalDictMode = false;
     recordingField = null;
 
@@ -1416,7 +1420,7 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
 
     // Dictate All button
     document.getElementById('dictateAllBtn')?.addEventListener('click', () => {
-      if (isRecording) stopRecording();
+      if (isRecording) stopDictation();
       else startGlobalDictation();
     });
 
@@ -1425,6 +1429,93 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
     document.getElementById('hcfaSavePdfBtn')?.addEventListener('click', savePDF);
     document.getElementById('hcfaFaxCoverBtn')?.addEventListener('click', showFaxCover);
     document.getElementById('hcfaSendInsBtn')?.addEventListener('click', sendToInsurance);
+
+    // Populate mic device selector and restore saved choice
+    populateMicSelector();
+
+    // Save mic choice to localStorage on change
+    document.getElementById('soapMicSelect')?.addEventListener('change', (e) => {
+      const id = e.target.value;
+      if (id) localStorage.setItem('soapMicDeviceId', id);
+      else    localStorage.removeItem('soapMicDeviceId');
+    });
+
+    // Mic test — record 3 s and play back
+    document.getElementById('micTestBtn')?.addEventListener('click', runMicTest);
+  }
+
+  async function populateMicSelector() {
+    try {
+      // Request permission first so labels are visible
+      const testStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      testStream.getTracks().forEach(t => t.stop());
+
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const mics    = devices.filter(d => d.kind === 'audioinput');
+
+      console.log('[SpinePay] Audio input devices detected:', mics.map(m => `${m.label || 'Unlabeled'} (${m.deviceId.slice(0,8)}...)`));
+
+      const sel = document.getElementById('soapMicSelect');
+      if (!sel) return;
+      sel.innerHTML = '<option value="">Default Mic</option>';
+      const saved = localStorage.getItem('soapMicDeviceId') || '';
+      mics.forEach((m) => {
+        const opt  = document.createElement('option');
+        opt.value  = m.deviceId;
+        opt.text   = m.label || ('Microphone ' + (sel.options.length));
+        opt.selected = (m.deviceId === saved);
+        sel.appendChild(opt);
+      });
+    } catch (err) {
+      console.warn('[SpinePay] Could not enumerate mic devices:', err.message);
+    }
+  }
+
+  async function runMicTest() {
+    const btn = document.getElementById('micTestBtn');
+    if (!btn) return;
+    btn.disabled   = true;
+    btn.textContent = 'Recording 3s…';
+
+    const deviceId = getSelectedMicId();
+    const audioConstraint = deviceId ? { deviceId: { exact: deviceId } } : true;
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraint, video: false });
+    } catch (err) {
+      toast('Mic test failed: ' + err.message, 'error');
+      btn.disabled   = false;
+      btn.innerHTML  = '<i class="fa-solid fa-headphones"></i> Test Mic';
+      return;
+    }
+
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
+    const recorder = new MediaRecorder(stream, { mimeType });
+    const chunks   = [];
+    recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+    recorder.start();
+
+    setTimeout(() => {
+      recorder.stop();
+      stream.getTracks().forEach(t => t.stop());
+      btn.textContent = 'Playing back…';
+
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: mimeType });
+        const url  = URL.createObjectURL(blob);
+        const audio = new Audio(url);
+        audio.onended = () => {
+          URL.revokeObjectURL(url);
+          btn.disabled  = false;
+          btn.innerHTML = '<i class="fa-solid fa-headphones"></i> Test Mic';
+        };
+        audio.play().catch(() => {
+          toast('Playback failed — but recording worked. Mic is detected.', 'info');
+          btn.disabled  = false;
+          btn.innerHTML = '<i class="fa-solid fa-headphones"></i> Test Mic';
+        });
+      };
+    }, 3000);
   }
 
   return {
