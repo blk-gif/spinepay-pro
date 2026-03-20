@@ -187,7 +187,7 @@ function initDatabase() {
 
     CREATE TABLE IF NOT EXISTS soap_notes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      appointment_id INTEGER NOT NULL,
+      appointment_id INTEGER,
       patient_id INTEGER NOT NULL,
       subjective TEXT,
       objective TEXT,
@@ -195,9 +195,9 @@ function initDatabase() {
       plan TEXT,
       diagnosis_codes TEXT,
       procedure_codes TEXT,
+      note_date TEXT,
       created_by TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (appointment_id) REFERENCES appointments(id) ON DELETE CASCADE,
       FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE
     );
 
@@ -237,6 +237,7 @@ function initDatabase() {
       template_id INTEGER,
       type TEXT,
       recipient TEXT,
+      message TEXT,
       status TEXT DEFAULT 'sent',
       sent_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       error_message TEXT
@@ -315,9 +316,37 @@ function initDatabase() {
     'ALTER TABLE intake_forms ADD COLUMN hipaa_acknowledged INTEGER DEFAULT 0',
     'ALTER TABLE intake_forms ADD COLUMN signature_date TEXT',
     'ALTER TABLE intake_forms ADD COLUMN submitted_at TEXT',
+    'ALTER TABLE soap_notes ADD COLUMN note_date TEXT',
+    'ALTER TABLE claims ADD COLUMN claim_type TEXT DEFAULT \'insurance\'',
+    'ALTER TABLE reminder_log ADD COLUMN message TEXT',
   ];
   for (const q of migrations) {
     try { db.exec(q); } catch (_) { /* column already exists */ }
+  }
+
+  // ── Migrate soap_notes: remove NOT NULL from appointment_id ─────────────────
+  // SQLite cannot drop constraints via ALTER TABLE; reconstruct the table.
+  const soapCols = db.prepare('PRAGMA table_info(soap_notes)').all();
+  const apptCol  = soapCols.find(c => c.name === 'appointment_id');
+  if (apptCol && apptCol.notnull === 1) {
+    db.exec('PRAGMA foreign_keys=OFF');
+    db.exec('DROP TABLE IF EXISTS soap_notes_tmp');
+    db.exec(`CREATE TABLE soap_notes_tmp (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      appointment_id INTEGER,
+      patient_id INTEGER NOT NULL,
+      subjective TEXT, objective TEXT, assessment TEXT, plan TEXT,
+      diagnosis_codes TEXT, procedure_codes TEXT, note_date TEXT,
+      created_by TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE
+    )`);
+    db.exec(`INSERT INTO soap_notes_tmp
+      SELECT id, appointment_id, patient_id, subjective, objective, assessment, plan,
+             diagnosis_codes, procedure_codes, note_date, created_by, created_at
+      FROM soap_notes`);
+    db.exec('DROP TABLE soap_notes');
+    db.exec('ALTER TABLE soap_notes_tmp RENAME TO soap_notes');
+    db.exec('PRAGMA foreign_keys=ON');
   }
 
   // Insert default users if not exists
@@ -919,18 +948,18 @@ ipcMain.handle('soap:get-by-patient', (event, patientId) => {
 });
 ipcMain.handle('soap:get-all', () => {
   return db.prepare(`
-    SELECT s.*, p.first_name, p.last_name, a.date, a.time, a.type as appt_type
+    SELECT s.*, p.first_name, p.last_name, a.date as appt_date, a.time as appt_time, a.type as appt_type
     FROM soap_notes s
     JOIN patients p ON s.patient_id = p.id
     LEFT JOIN appointments a ON s.appointment_id = a.id
-    ORDER BY a.date DESC, s.created_at DESC
+    ORDER BY COALESCE(s.note_date, s.created_at) DESC
   `).all();
 });
 ipcMain.handle('soap:create', (event, data) => {
   const result = db.prepare(`
-    INSERT INTO soap_notes (appointment_id, patient_id, subjective, objective, assessment, plan, diagnosis_codes, procedure_codes, created_by)
-    VALUES (@appointment_id, @patient_id, @subjective, @objective, @assessment, @plan, @diagnosis_codes, @procedure_codes, @created_by)
-  `).run({ created_by: null, ...data });
+    INSERT INTO soap_notes (appointment_id, patient_id, subjective, objective, assessment, plan, diagnosis_codes, procedure_codes, note_date, created_by)
+    VALUES (@appointment_id, @patient_id, @subjective, @objective, @assessment, @plan, @diagnosis_codes, @procedure_codes, @note_date, @created_by)
+  `).run({ created_by: null, note_date: null, ...data });
   return { success: true, id: result.lastInsertRowid };
 });
 ipcMain.handle('soap:delete', (event, id) => {
@@ -979,7 +1008,8 @@ ipcMain.handle('eob:delete', (event, id) => {
 });
 ipcMain.handle('eob:update', (event, { id, data }) => {
   db.prepare(`
-    UPDATE eob_records SET allowed_amount=@allowed_amount, paid_amount=@paid_amount,
+    UPDATE eob_records SET insurer=@insurer, received_date=@received_date, billed_amount=@billed_amount,
+    allowed_amount=@allowed_amount, paid_amount=@paid_amount,
     patient_responsibility=@patient_responsibility, adjustment_reason=@adjustment_reason,
     status=@status, discrepancy_flag=@discrepancy_flag, discrepancy_notes=@discrepancy_notes WHERE id=@id
   `).run({ ...data, id });
@@ -1004,7 +1034,7 @@ ipcMain.handle('reminders:create-template', (event, data) => {
 });
 ipcMain.handle('reminders:get-log', () => {
   return db.prepare(`
-    SELECT l.*, p.first_name, p.last_name
+    SELECT l.*, p.first_name || ' ' || p.last_name AS patient_name
     FROM reminder_log l LEFT JOIN patients p ON l.patient_id = p.id
     ORDER BY l.sent_at DESC LIMIT 200
   `).all();
@@ -1021,9 +1051,9 @@ ipcMain.handle('reminders:send', async (event, { appointmentId, templateId }) =>
       .replace(/\{\{time\}\}/g, appt.time);
 
     // Log the reminder (actual sending requires Twilio/SendGrid credentials in env)
-    db.prepare(`INSERT INTO reminder_log (appointment_id, patient_id, template_id, type, recipient, status) VALUES (?, ?, ?, ?, ?, ?)`).run(
+    db.prepare(`INSERT INTO reminder_log (appointment_id, patient_id, template_id, type, recipient, message, status) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
       appointmentId, appt.patient_id, templateId, template.type,
-      template.type === 'sms' ? appt.phone : appt.email, 'sent'
+      template.type === 'sms' ? appt.phone : appt.email, body, 'sent'
     );
     return { success: true, message: body, recipient: template.type === 'sms' ? appt.phone : appt.email };
   } catch (err) {
@@ -1034,9 +1064,8 @@ ipcMain.handle('reminders:send', async (event, { appointmentId, templateId }) =>
 // ── WAITLIST ─────────────────────────────────────────────────────────────────
 ipcMain.handle('waitlist:get-all', () => {
   return db.prepare(`
-    SELECT w.*, p.first_name, p.last_name, p.phone, p.email
+    SELECT w.*, p.first_name || ' ' || p.last_name AS patient_name, p.phone AS patient_phone, p.email
     FROM waitlist w JOIN patients p ON w.patient_id = p.id
-    WHERE w.status = 'waiting'
     ORDER BY w.created_at ASC
   `).all();
 });
@@ -1089,7 +1118,7 @@ ipcMain.handle('transport:delete', (event, id) => {
 // ── PI CASES ─────────────────────────────────────────────────────────────────
 ipcMain.handle('pi:get-all', () => {
   return db.prepare(`
-    SELECT pi.*, p.first_name, p.last_name, p.phone
+    SELECT pi.*, p.first_name || ' ' || p.last_name AS patient_name, p.phone
     FROM pi_cases pi JOIN patients p ON pi.patient_id = p.id
     ORDER BY pi.created_at DESC
   `).all();
