@@ -494,6 +494,17 @@ function insertSampleData() {
 }
 
 function createWindow() {
+  // Grant microphone (and camera) permissions automatically for speech recognition
+  session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+    const allowed = ['media', 'microphone', 'audioCapture', 'camera'];
+    callback(allowed.includes(permission));
+  });
+
+  session.defaultSession.setPermissionCheckHandler((webContents, permission) => {
+    const allowed = ['media', 'microphone', 'audioCapture', 'camera'];
+    return allowed.includes(permission);
+  });
+
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
