@@ -1204,6 +1204,38 @@ ipcMain.handle('hcfa:delete', (event, id) => {
   return { success: true };
 });
 
+// ── OFFLINE SPEECH RECOGNITION (Whisper via @xenova/transformers) ─────────────
+let whisperPipeline = null;
+let whisperLoading  = false;
+
+ipcMain.handle('speech:transcribe', async (event, audioData) => {
+  try {
+    if (!whisperPipeline) {
+      if (whisperLoading) return { success: false, error: 'Model is still loading, please wait a moment and try again.' };
+      whisperLoading = true;
+      const { pipeline, env } = require('@xenova/transformers');
+      env.allowLocalModels = false; // use HuggingFace Hub cache
+      whisperPipeline = await pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny.en', {
+        chunk_length_s: 30,
+        stride_length_s: 5,
+        return_timestamps: false
+      });
+      whisperLoading = false;
+    }
+    const float32 = audioData instanceof Float32Array ? audioData : new Float32Array(audioData);
+    const result  = await whisperPipeline(float32, { language: 'english', task: 'transcribe' });
+    return { success: true, text: (result.text || '').trim() };
+  } catch (err) {
+    whisperLoading = false;
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('speech:status', () => ({
+  loaded:  !!whisperPipeline,
+  loading: whisperLoading
+}));
+
 // ── TIME CLOCK ───────────────────────────────────────────────────────────────
 ipcMain.handle('timeclock:clock-in', (event, { userId, notes }) => {
   // Check not already clocked in
