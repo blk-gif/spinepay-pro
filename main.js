@@ -299,6 +299,21 @@ function initDatabase() {
       approved_by INTEGER,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS hcfa_forms (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      soap_note_id INTEGER,
+      patient_id INTEGER NOT NULL,
+      form_data TEXT,
+      status TEXT DEFAULT 'Draft',
+      fax_recipient TEXT,
+      fax_sent_at TEXT,
+      fax_sent_by TEXT,
+      printed_at TEXT,
+      created_by TEXT,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE
+    );
   `);
 
   // ── Migrate existing databases: add missing columns ─────────────────────────
@@ -1143,6 +1158,38 @@ ipcMain.handle('pi:update', (event, { id, data }) => {
 });
 ipcMain.handle('pi:delete', (event, id) => {
   db.prepare('DELETE FROM pi_cases WHERE id = ?').run(id);
+  return { success: true };
+});
+
+// ── HCFA FORMS ───────────────────────────────────────────────────────────────
+ipcMain.handle('hcfa:get-by-patient', (event, patientId) => {
+  return db.prepare(`
+    SELECT h.*, s.note_date, s.diagnosis_codes, s.procedure_codes
+    FROM hcfa_forms h
+    LEFT JOIN soap_notes s ON h.soap_note_id = s.id
+    WHERE h.patient_id = ?
+    ORDER BY h.created_at DESC
+  `).all(patientId);
+});
+ipcMain.handle('hcfa:get-by-soap', (event, soapNoteId) => {
+  return db.prepare('SELECT * FROM hcfa_forms WHERE soap_note_id = ? ORDER BY created_at DESC').all(soapNoteId);
+});
+ipcMain.handle('hcfa:create', (event, data) => {
+  const result = db.prepare(`
+    INSERT INTO hcfa_forms (soap_note_id, patient_id, form_data, status, created_by)
+    VALUES (@soap_note_id, @patient_id, @form_data, @status, @created_by)
+  `).run({ soap_note_id: null, status: 'Draft', created_by: null, ...data });
+  return { success: true, id: result.lastInsertRowid };
+});
+ipcMain.handle('hcfa:update', (event, { id, data }) => {
+  db.prepare(`
+    UPDATE hcfa_forms SET form_data=@form_data, status=@status, fax_recipient=@fax_recipient,
+    fax_sent_at=@fax_sent_at, fax_sent_by=@fax_sent_by, printed_at=@printed_at WHERE id=@id
+  `).run({ fax_recipient: null, fax_sent_at: null, fax_sent_by: null, printed_at: null, ...data, id });
+  return { success: true };
+});
+ipcMain.handle('hcfa:delete', (event, id) => {
+  db.prepare('DELETE FROM hcfa_forms WHERE id = ?').run(id);
   return { success: true };
 });
 

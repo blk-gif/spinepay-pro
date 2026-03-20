@@ -1277,6 +1277,7 @@ textarea.form-control { resize: vertical; min-height: 80px; line-height: 1.5; }
 }
 
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
 
 .btn .spinner-sm {
   width: 12px;

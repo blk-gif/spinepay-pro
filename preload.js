@@ -130,6 +130,13 @@ contextBridge.exposeInMainWorld('api', {
     update: (id, data) => ipcRenderer.invoke('timeclock:update', { id, data }),
     getAllUsers: () => ipcRenderer.invoke('timeclock:get-all-users')
   },
+  hcfa: {
+    getByPatient: (patientId) => ipcRenderer.invoke('hcfa:get-by-patient', patientId),
+    getBySoap: (soapNoteId) => ipcRenderer.invoke('hcfa:get-by-soap', soapNoteId),
+    create: (data) => ipcRenderer.invoke('hcfa:create', data),
+    update: (id, data) => ipcRenderer.invoke('hcfa:update', { id, data }),
+    delete: (id) => ipcRenderer.invoke('hcfa:delete', id)
+  },
   file: {
     showOpenDialog: (options) => ipcRenderer.invoke('file:show-open-dialog', options),
     saveDialog: (defaultPath, content) => ipcRenderer.invoke('file:save-dialog', { defaultPath, content })
