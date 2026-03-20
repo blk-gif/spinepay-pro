@@ -2,6 +2,12 @@ const { app, BrowserWindow, ipcMain, dialog, session } = require('electron');
 const path = require('path');
 const crypto = require('crypto');
 const fs = require('fs');
+const { runMigrations } = require('./db-migrations');
+
+// Ensure Chromium uses English for speech and automatically grants media-stream
+// permission prompts without a system dialog (works alongside our session handler)
+app.commandLine.appendSwitch('lang', 'en-US');
+app.commandLine.appendSwitch('use-fake-ui-for-media-stream');
 
 let mainWindow;
 let db;
@@ -363,6 +369,9 @@ function initDatabase() {
     db.exec('ALTER TABLE soap_notes_tmp RENAME TO soap_notes');
     db.exec('PRAGMA foreign_keys=ON');
   }
+
+  // ── Run db-migrations.js (new tables + missing columns) ─────────────────────
+  runMigrations(db);
 
   // Insert default users if not exists
   const adminExists = db.prepare('SELECT id FROM users WHERE username = ?').get('admin');
