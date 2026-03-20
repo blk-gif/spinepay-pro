@@ -1213,7 +1213,7 @@ ipcMain.handle('speech:transcribe', async (event, audioData) => {
     if (!whisperPipeline) {
       if (whisperLoading) return { success: false, error: 'Model is still loading, please wait a moment and try again.' };
       whisperLoading = true;
-      const { pipeline, env } = require('@xenova/transformers');
+      const { pipeline, env } = await import('@xenova/transformers');
       env.allowLocalModels = false; // use HuggingFace Hub cache
       whisperPipeline = await pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny.en', {
         chunk_length_s: 30,
