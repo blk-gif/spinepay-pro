@@ -10,7 +10,13 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(git push:*)",
-      "Bash(start cmd:*)"
+      "Bash(start cmd:*)",
+      "Bash(SRC=\"C:/Users/Jayto/Documents/spinepay-pro/src\")",
+      "Bash(DST=\"C:/Users/Jayto/Documents/spinepay-pro-web/public\")",
+      "Bash(cp \"$SRC/css/styles.css\" \"$DST/css/styles.css\")",
+      "Bash(cp \"$SRC/js/login.js\" \"$DST/js/login.js\")",
+      "Bash(cp \"$SRC/js/app.js\" \"$DST/js/app.js\")",
+      "Bash(gh repo:*)"
     ]
   }
 }
