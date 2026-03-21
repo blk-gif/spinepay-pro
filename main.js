@@ -8,7 +8,19 @@ const os = require('os');
 
 let mainWindow;
 let db;
+let dbPath;
 let currentUser = null;
+
+// ── Helper: read/write settings from SQLite ───────────────────────────────────
+function getSetting(key) {
+  try {
+    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+    return row ? row.value : null;
+  } catch (_) { return null; }
+}
+function setSetting(key, value) {
+  db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)').run(key, String(value));
+}
 
 function hashPassword(password) {
   return crypto.createHash('sha256').update(password).digest('hex');
@@ -17,7 +29,7 @@ function hashPassword(password) {
 function initDatabase() {
   const Database = require('better-sqlite3');
   const userDataPath = app.getPath('userData');
-  const dbPath = path.join(userDataPath, 'spinepay.db');
+  dbPath = path.join(userDataPath, 'spinepay.db');
   db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
@@ -533,7 +545,12 @@ function createWindow() {
     mainWindow.show();
   });
 
-  mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
+  const setupComplete = getSetting('setup_complete');
+  if (setupComplete === 'true') {
+    mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
+  } else {
+    mainWindow.loadFile(path.join(__dirname, 'src', 'wizard.html'));
+  }
 
   if (process.argv.includes('--dev')) {
     mainWindow.webContents.openDevTools();
@@ -1224,6 +1241,159 @@ ipcMain.handle('settings:set', (event, { key, value }) => {
   return { success: true };
 });
 
+// ── WIZARD ───────────────────────────────────────────────────────────────────
+ipcMain.handle('wizard:complete', (event, payload) => {
+  try {
+    const {
+      practiceName, practiceAddress, practiceCity, practiceState, practiceZip,
+      practicePhone, practiceEmail, practiceNPI, practiceEIN,
+      adminFullName, adminUsername, adminPassword,
+      staff, backupFolder
+    } = payload;
+
+    // Save practice settings
+    const practiceSettings = {
+      PRACTICE_NAME: practiceName || '',
+      PRACTICE_ADDRESS: practiceAddress || '',
+      PRACTICE_CITY: practiceCity || '',
+      PRACTICE_STATE: practiceState || '',
+      PRACTICE_ZIP: practiceZip || '',
+      PRACTICE_PHONE: practicePhone || '',
+      PRACTICE_EMAIL: practiceEmail || '',
+      PRACTICE_NPI: practiceNPI || '',
+      PRACTICE_EIN: practiceEIN || '',
+      BILLING_PROVIDER_NAME: practiceName || '',
+      BACKUP_FOLDER: backupFolder || ''
+    };
+    for (const [key, value] of Object.entries(practiceSettings)) {
+      setSetting(key, value);
+    }
+
+    // Create/update admin user
+    const adminHash = hashPassword(adminPassword);
+    const adminExists = db.prepare('SELECT id FROM users WHERE username = ?').get(adminUsername);
+    if (adminExists) {
+      db.prepare('UPDATE users SET password_hash=?, full_name=?, role=? WHERE username=?').run(adminHash, adminFullName, 'admin', adminUsername);
+    } else {
+      db.prepare('INSERT INTO users (username, password_hash, role, full_name) VALUES (?,?,?,?)').run(adminUsername, adminHash, 'admin', adminFullName);
+    }
+
+    // Create staff users
+    if (Array.isArray(staff)) {
+      for (const s of staff) {
+        if (!s.username || !s.fullName) continue;
+        const exists = db.prepare('SELECT id FROM users WHERE username = ?').get(s.username);
+        if (!exists) {
+          db.prepare('INSERT INTO users (username, password_hash, role, full_name) VALUES (?,?,?,?)').run(
+            s.username, hashPassword('changeme123'), s.role || 'staff', s.fullName
+          );
+        }
+      }
+    }
+
+    setSetting('setup_complete', 'true');
+    return { success: true };
+  } catch (err) {
+    console.error('[Wizard] complete error:', err.message);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('wizard:select-folder', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory', 'createDirectory'],
+    title: 'Select Backup Folder'
+  });
+  if (result.canceled) return null;
+  return result.filePaths[0];
+});
+
+ipcMain.handle('wizard:launch', () => {
+  mainWindow.loadFile(path.join(__dirname, 'src', 'index.html'));
+  return { success: true };
+});
+
+// ── BACKUP SYSTEM ─────────────────────────────────────────────────────────────
+const MAX_BACKUP_AGE_DAYS = 365 * 7; // 7-year HIPAA retention
+
+function cleanOldBackups(folder) {
+  try {
+    const files = fs.readdirSync(folder).filter(f => f.startsWith('spinepay-backup-') && f.endsWith('.zip'));
+    const cutoff = Date.now() - MAX_BACKUP_AGE_DAYS * 24 * 60 * 60 * 1000;
+    for (const f of files) {
+      const fp = path.join(folder, f);
+      const stat = fs.statSync(fp);
+      if (stat.mtimeMs < cutoff) fs.unlinkSync(fp);
+    }
+  } catch (_) {}
+}
+
+async function runBackup() {
+  const folder = getSetting('BACKUP_FOLDER');
+  if (!folder) { console.log('[Backup] No backup folder configured, skipping.'); return { success: false, error: 'No backup folder set' }; }
+  if (!fs.existsSync(folder)) { fs.mkdirSync(folder, { recursive: true }); }
+
+  const archiver = require('archiver');
+  const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const outFile = path.join(folder, `spinepay-backup-${ts}.zip`);
+
+  return new Promise((resolve) => {
+    const output = fs.createWriteStream(outFile);
+    const archive = archiver('zip', { zlib: { level: 9 } });
+
+    output.on('close', () => {
+      const size = archive.pointer();
+      setSetting('LAST_BACKUP_FILE', outFile);
+      setSetting('LAST_BACKUP_AT', new Date().toISOString());
+      setSetting('LAST_BACKUP_SIZE', String(size));
+      cleanOldBackups(folder);
+      console.log(`[Backup] Done: ${outFile} (${size} bytes)`);
+      resolve({ success: true, file: outFile, size });
+    });
+    archive.on('error', (err) => {
+      console.error('[Backup] Error:', err.message);
+      resolve({ success: false, error: err.message });
+    });
+
+    archive.pipe(output);
+    if (dbPath && fs.existsSync(dbPath)) archive.file(dbPath, { name: 'spinepay.db' });
+    archive.finalize();
+  });
+}
+
+ipcMain.handle('backup:run-now', async () => runBackup());
+
+ipcMain.handle('backup:get-status', () => ({
+  lastBackupAt:   getSetting('LAST_BACKUP_AT'),
+  lastBackupFile: getSetting('LAST_BACKUP_FILE'),
+  lastBackupSize: getSetting('LAST_BACKUP_SIZE'),
+  backupFolder:   getSetting('BACKUP_FOLDER')
+}));
+
+ipcMain.handle('backup:list', () => {
+  const folder = getSetting('BACKUP_FOLDER');
+  if (!folder || !fs.existsSync(folder)) return [];
+  return fs.readdirSync(folder)
+    .filter(f => f.startsWith('spinepay-backup-') && f.endsWith('.zip'))
+    .map(f => {
+      const fp = path.join(folder, f);
+      const stat = fs.statSync(fp);
+      return { name: f, path: fp, size: stat.size, date: stat.mtime.toISOString() };
+    })
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .slice(0, 10);
+});
+
+ipcMain.handle('backup:set-folder', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory', 'createDirectory'],
+    title: 'Select Backup Folder'
+  });
+  if (result.canceled) return { success: false };
+  setSetting('BACKUP_FOLDER', result.filePaths[0]);
+  return { success: true, folder: result.filePaths[0] };
+});
+
 // ── TIME CLOCK ───────────────────────────────────────────────────────────────
 ipcMain.handle('timeclock:clock-in', (event, { userId, notes }) => {
   // Check not already clocked in
@@ -1289,6 +1459,14 @@ ipcMain.handle('file:save-dialog', async (event, { defaultPath, content }) => {
   return { success: true, filePath: result.filePath };
 });
 
+// ── UPDATER ───────────────────────────────────────────────────────────────────
+ipcMain.handle('updater:install-now', () => {
+  try {
+    const { autoUpdater } = require('electron-updater');
+    autoUpdater.quitAndInstall();
+  } catch (_) {}
+});
+
 // ── WHISPER OFFLINE TRANSCRIPTION (@xenova/transformers) ─────────────────────
 let whisperPipeline = null;
 
@@ -1322,6 +1500,26 @@ app.whenReady().then(() => {
   createWindow();
   // Preload Whisper model in background so first dictation has no delay
   setTimeout(() => getWhisperPipeline().catch(() => {}), 3000);
+
+  // ── Auto-updater ─────────────────────────────────────────────────────────
+  try {
+    const { autoUpdater } = require('electron-updater');
+    autoUpdater.on('update-available', () => {
+      mainWindow.webContents.send('update-available');
+    });
+    autoUpdater.on('update-downloaded', () => {
+      mainWindow.webContents.send('update-downloaded');
+    });
+    autoUpdater.checkForUpdatesAndNotify().catch(() => {});
+  } catch (_) { /* not packaged — skip */ }
+
+  // ── Midnight backup cron ─────────────────────────────────────────────────
+  try {
+    const cron = require('node-cron');
+    cron.schedule('0 0 * * *', () => {
+      runBackup().catch(err => console.error('[Backup] Cron error:', err.message));
+    });
+  } catch (_) { /* node-cron not available */ }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

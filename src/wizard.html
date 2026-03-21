@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SpinePay Pro — Setup</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --gold: #d4af37;
+      --gold-light: #f0c040;
+      --bg-deep: #0a0a0a;
+      --bg-card: #1a1a1a;
+      --bg-input: #222;
+      --text-primary: #fff;
+      --text-secondary: #e0e0e0;
+      --text-muted: #888;
+      --border: #2a2a2a;
+      --danger: #e74c3c;
+      --success: #2ecc71;
+    }
+
+    html, body {
+      height: 100%; width: 100%;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: var(--bg-deep);
+      color: var(--text-primary);
+      overflow: hidden;
+    }
+
+    .wizard-wrap {
+      width: 100%; height: 100vh;
+      display: flex; flex-direction: column;
+      background: radial-gradient(ellipse at 20% 50%, rgba(212,175,55,0.07) 0%, transparent 60%),
+                  linear-gradient(135deg, #0a0a0a 0%, #111 50%, #0d0d0d 100%);
+    }
+
+    /* Progress bar */
+    .progress-bar {
+      height: 3px; background: var(--border);
+      flex-shrink: 0;
+    }
+    .progress-fill {
+      height: 100%; background: var(--gold);
+      transition: width 0.4s ease;
+    }
+
+    /* Step indicators */
+    .steps-row {
+      display: flex; justify-content: center; align-items: center;
+      gap: 0; padding: 18px 0 6px;
+      flex-shrink: 0;
+    }
+    .step-dot {
+      width: 32px; height: 32px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700;
+      border: 2px solid var(--border); color: var(--text-muted);
+      background: var(--bg-card); position: relative; z-index: 1;
+      transition: all 0.3s;
+    }
+    .step-dot.active { border-color: var(--gold); color: var(--gold); }
+    .step-dot.done   { border-color: var(--gold); background: var(--gold); color: #000; }
+    .step-line {
+      width: 60px; height: 2px; background: var(--border);
+      transition: background 0.3s;
+    }
+    .step-line.done { background: var(--gold); }
+
+    /* Content */
+    .wizard-content {
+      flex: 1; overflow-y: auto;
+      display: flex; align-items: flex-start; justify-content: center;
+      padding: 20px 20px 0;
+    }
+
+    .wizard-step {
+      display: none; width: 100%; max-width: 620px;
+      animation: fadeIn 0.3s ease;
+    }
+    .wizard-step.active { display: block; }
+
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+    .step-icon {
+      width: 64px; height: 64px; border-radius: 50%;
+      background: rgba(212,175,55,0.12); border: 2px solid rgba(212,175,55,0.3);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 26px; color: var(--gold); margin: 0 auto 16px;
+    }
+
+    h1 { font-size: 26px; font-weight: 800; text-align: center; margin-bottom: 6px; }
+    .step-sub { text-align: center; color: var(--text-muted); font-size: 14px; margin-bottom: 24px; line-height: 1.5; }
+
+    .section-label {
+      font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .8px;
+      color: var(--gold); margin: 16px 0 10px;
+    }
+
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+    .form-row.cols-3 { grid-template-columns: 2fr 1fr 1fr; }
+    .form-group { display: flex; flex-direction: column; gap: 5px; margin-bottom: 12px; }
+    .form-group.full { grid-column: 1/-1; }
+
+    label { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+
+    input, select {
+      background: var(--bg-input); border: 1px solid var(--border);
+      border-radius: 6px; padding: 9px 12px; color: var(--text-primary);
+      font-size: 14px; outline: none; width: 100%;
+      transition: border-color 0.2s;
+    }
+    input:focus, select:focus { border-color: var(--gold); }
+    input::placeholder { color: var(--text-muted); }
+
+    .pass-wrap { position: relative; }
+    .pass-wrap input { padding-right: 40px; }
+    .pass-toggle {
+      position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+      background: none; border: none; color: var(--text-muted); cursor: pointer;
+      font-size: 14px; padding: 2px 4px;
+    }
+    .pass-toggle:hover { color: var(--gold); }
+
+    .field-hint { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+    .field-error { font-size: 11px; color: var(--danger); margin-top: 3px; display: none; }
+
+    /* Staff card */
+    .staff-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+    .staff-card {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px 14px;
+      display: grid; grid-template-columns: 1fr 1fr auto auto; gap: 10px; align-items: center;
+    }
+    .staff-card select { padding: 7px 10px; font-size: 13px; }
+    .staff-card input  { padding: 7px 10px; font-size: 13px; }
+    .btn-remove {
+      background: rgba(231,76,60,0.15); border: 1px solid rgba(231,76,60,0.3);
+      color: #e74c3c; border-radius: 6px; padding: 7px 10px; cursor: pointer;
+      font-size: 13px; transition: background 0.2s;
+    }
+    .btn-remove:hover { background: rgba(231,76,60,0.3); }
+
+    /* Backup folder */
+    .folder-row {
+      display: flex; gap: 10px; align-items: center;
+    }
+    .folder-row input { flex: 1; }
+    .folder-info {
+      background: rgba(212,175,55,0.06); border: 1px solid rgba(212,175,55,0.2);
+      border-radius: 8px; padding: 14px 16px; margin-top: 14px;
+    }
+    .folder-info p { font-size: 13px; color: var(--text-secondary); margin-bottom: 6px; display: flex; gap: 8px; align-items: flex-start; }
+    .folder-info p:last-child { margin-bottom: 0; }
+    .folder-info i { color: var(--gold); flex-shrink: 0; margin-top: 2px; }
+
+    /* Welcome */
+    .logo-wrap {
+      text-align: center; padding: 20px 0 10px;
+    }
+    .logo-icon {
+      width: 80px; height: 80px; border-radius: 20px;
+      background: linear-gradient(135deg, rgba(212,175,55,0.2), rgba(212,175,55,0.05));
+      border: 2px solid rgba(212,175,55,0.4);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 36px; color: var(--gold); margin: 0 auto 16px;
+    }
+    .brand-name { font-size: 32px; font-weight: 900; color: var(--gold); letter-spacing: 1px; }
+    .brand-sub { font-size: 14px; color: var(--text-muted); margin-top: 4px; }
+    .welcome-text {
+      text-align: center; max-width: 460px; margin: 20px auto;
+      color: var(--text-secondary); font-size: 15px; line-height: 1.7;
+    }
+    .welcome-bullets {
+      list-style: none; max-width: 380px; margin: 0 auto 24px;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+    .welcome-bullets li {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 13px; color: var(--text-secondary);
+    }
+    .welcome-bullets i { color: var(--gold); width: 16px; }
+
+    /* Footer nav */
+    .wizard-footer {
+      flex-shrink: 0; padding: 16px 20px;
+      display: flex; justify-content: space-between; align-items: center;
+      border-top: 1px solid var(--border);
+    }
+    .step-counter { font-size: 12px; color: var(--text-muted); }
+
+    .btn {
+      padding: 10px 28px; border-radius: 8px; font-size: 14px; font-weight: 700;
+      cursor: pointer; border: none; display: inline-flex; align-items: center; gap: 8px;
+      transition: all 0.2s;
+    }
+    .btn-gold { background: var(--gold); color: #000; }
+    .btn-gold:hover { background: var(--gold-light); }
+    .btn-outline {
+      background: transparent; border: 1px solid var(--border);
+      color: var(--text-secondary);
+    }
+    .btn-outline:hover { border-color: var(--gold); color: var(--gold); }
+    .btn-sm { padding: 8px 16px; font-size: 13px; }
+    .btn-add {
+      background: rgba(212,175,55,0.12); border: 1px solid rgba(212,175,55,0.3);
+      color: var(--gold); border-radius: 8px; padding: 9px 16px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 8px;
+      transition: background 0.2s;
+    }
+    .btn-add:hover { background: rgba(212,175,55,0.2); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .skip-link { font-size: 12px; color: var(--text-muted); cursor: pointer; text-decoration: underline; }
+    .skip-link:hover { color: var(--gold); }
+
+    /* Error/success banners */
+    .alert { padding: 10px 14px; border-radius: 8px; font-size: 13px; margin-bottom: 14px; display: none; }
+    .alert.show { display: flex; gap: 8px; align-items: center; }
+    .alert-error   { background: rgba(231,76,60,0.15); border: 1px solid rgba(231,76,60,0.3); color: #e74c3c; }
+    .alert-success { background: rgba(46,204,113,0.1); border: 1px solid rgba(46,204,113,0.3); color: #2ecc71; }
+  </style>
+</head>
+<body>
+<div class="wizard-wrap">
+
+  <!-- Progress bar -->
+  <div class="progress-bar"><div class="progress-fill" id="progressFill" style="width:20%;"></div></div>
+
+  <!-- Step indicators -->
+  <div class="steps-row" id="stepsRow">
+    <div class="step-dot active" id="sd1">1</div>
+    <div class="step-line" id="sl1"></div>
+    <div class="step-dot" id="sd2">2</div>
+    <div class="step-line" id="sl2"></div>
+    <div class="step-dot" id="sd3">3</div>
+    <div class="step-line" id="sl3"></div>
+    <div class="step-dot" id="sd4">4</div>
+    <div class="step-line" id="sl4"></div>
+    <div class="step-dot" id="sd5">5</div>
+  </div>
+
+  <!-- Content -->
+  <div class="wizard-content">
+
+    <!-- Step 1: Welcome -->
+    <div class="wizard-step active" id="step1">
+      <div class="logo-wrap">
+        <div class="logo-icon"><i class="fa-solid fa-bone"></i></div>
+        <div class="brand-name">SpinePay Pro</div>
+        <div class="brand-sub">Practice Management System</div>
+      </div>
+      <div class="welcome-text">
+        Welcome to SpinePay Pro — Practice Management for Walden Bailey Chiropractic.<br>
+        This quick setup wizard will get you running in about 2 minutes.
+      </div>
+      <ul class="welcome-bullets">
+        <li><i class="fa-solid fa-building"></i> Practice information &amp; billing details</li>
+        <li><i class="fa-solid fa-user-shield"></i> Admin account credentials</li>
+        <li><i class="fa-solid fa-users"></i> Staff accounts (optional)</li>
+        <li><i class="fa-solid fa-database"></i> Automated HIPAA backup location</li>
+      </ul>
+    </div>
+
+    <!-- Step 2: Practice Information -->
+    <div class="wizard-step" id="step2">
+      <div class="step-icon"><i class="fa-solid fa-building"></i></div>
+      <h1>Practice Information</h1>
+      <p class="step-sub">This information appears on CMS-1500 forms and patient communications.</p>
+      <div id="step2Alert" class="alert alert-error"></div>
+
+      <div class="section-label">Clinic Details</div>
+      <div class="form-group">
+        <label>Practice Name</label>
+        <input type="text" id="pName" value="Walden Bailey Chiropractic" />
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Street Address</label>
+          <input type="text" id="pAddr" value="1086 Walden Ave Suite 1" />
+        </div>
+        <div class="form-group">
+          <label>Phone</label>
+          <input type="text" id="pPhone" value="(716) 893-9200" />
+        </div>
+      </div>
+      <div class="form-row cols-3">
+        <div class="form-group">
+          <label>City</label>
+          <input type="text" id="pCity" value="Buffalo" />
+        </div>
+        <div class="form-group">
+          <label>State</label>
+          <input type="text" id="pState" value="NY" maxlength="2" />
+        </div>
+        <div class="form-group">
+          <label>ZIP</label>
+          <input type="text" id="pZip" value="14211" maxlength="10" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" id="pEmail" placeholder="billing@yourpractice.com" />
+      </div>
+
+      <div class="section-label">Billing Identifiers (for CMS-1500)</div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Practice NPI <span style="color:var(--text-muted);font-weight:400;">(Box 33)</span></label>
+          <input type="text" id="pNpi" placeholder="10-digit NPI" maxlength="10" />
+        </div>
+        <div class="form-group">
+          <label>Federal EIN / Tax ID <span style="color:var(--text-muted);font-weight:400;">(Box 25)</span></label>
+          <input type="text" id="pEin" placeholder="XX-XXXXXXX" maxlength="20" />
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 3: Admin Account -->
+    <div class="wizard-step" id="step3">
+      <div class="step-icon"><i class="fa-solid fa-user-shield"></i></div>
+      <h1>Admin Account</h1>
+      <p class="step-sub">Create the administrator account. This account has full access to all features.</p>
+      <div id="step3Alert" class="alert alert-error"></div>
+
+      <div class="form-group">
+        <label>Full Name</label>
+        <input type="text" id="aName" placeholder="Dr. Jane Smith" />
+      </div>
+      <div class="form-group">
+        <label>Username</label>
+        <input type="text" id="aUser" value="admin" autocomplete="off" />
+      </div>
+      <div class="form-group">
+        <label>Password</label>
+        <div class="pass-wrap">
+          <input type="password" id="aPass" placeholder="At least 8 characters" autocomplete="new-password" />
+          <button type="button" class="pass-toggle" onclick="togglePass('aPass',this)"><i class="fa-solid fa-eye"></i></button>
+        </div>
+        <div class="field-hint">Minimum 8 characters. Use a strong password.</div>
+      </div>
+      <div class="form-group">
+        <label>Confirm Password</label>
+        <div class="pass-wrap">
+          <input type="password" id="aPass2" placeholder="Re-enter password" autocomplete="new-password" />
+          <button type="button" class="pass-toggle" onclick="togglePass('aPass2',this)"><i class="fa-solid fa-eye"></i></button>
+        </div>
+        <div id="passMatchErr" class="field-error">Passwords do not match</div>
+      </div>
+    </div>
+
+    <!-- Step 4: Staff Accounts -->
+    <div class="wizard-step" id="step4">
+      <div class="step-icon"><i class="fa-solid fa-users"></i></div>
+      <h1>Staff Accounts</h1>
+      <p class="step-sub">Add up to 10 staff members. You can skip this and add staff later in Settings.</p>
+
+      <div class="staff-list" id="staffList"></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+        <button type="button" class="btn-add" id="addStaffBtn" onclick="addStaff()">
+          <i class="fa-solid fa-plus"></i> Add Staff Member
+        </button>
+        <span id="staffCount" style="font-size:12px;color:var(--text-muted);">0 / 10</span>
+      </div>
+    </div>
+
+    <!-- Step 5: Backup Location -->
+    <div class="wizard-step" id="step5">
+      <div class="step-icon"><i class="fa-solid fa-database"></i></div>
+      <h1>Backup Location</h1>
+      <p class="step-sub">Choose where SpinePay Pro stores your daily backups.</p>
+      <div id="step5Alert" class="alert alert-error"></div>
+
+      <div class="form-group">
+        <label>Backup Folder</label>
+        <div class="folder-row">
+          <input type="text" id="backupFolder" value="C:\SpinePayBackups" />
+          <button type="button" class="btn btn-outline btn-sm" onclick="browseFolder()">
+            <i class="fa-solid fa-folder-open"></i> Browse
+          </button>
+        </div>
+      </div>
+
+      <div class="folder-info">
+        <p><i class="fa-solid fa-clock"></i> Backups run automatically every night at midnight.</p>
+        <p><i class="fa-solid fa-shield-halved"></i> 7 years of backups are kept to meet HIPAA requirements.</p>
+        <p><i class="fa-solid fa-file-zipper"></i> Each backup is a compressed ZIP of your database file.</p>
+        <p><i class="fa-solid fa-circle-info"></i> The selected folder will be created automatically if it doesn't exist.</p>
+      </div>
+    </div>
+
+  </div><!-- /wizard-content -->
+
+  <!-- Footer -->
+  <div class="wizard-footer">
+    <div>
+      <button class="btn btn-outline" id="backBtn" onclick="goBack()" style="display:none;">
+        <i class="fa-solid fa-arrow-left"></i> Back
+      </button>
+    </div>
+    <span class="step-counter" id="stepCounter">Step 1 of 5</span>
+    <div style="display:flex;align-items:center;gap:14px;">
+      <span class="skip-link" id="skipLink" onclick="skipStep()" style="display:none;">Skip for now</span>
+      <button class="btn btn-gold" id="nextBtn" onclick="goNext()">
+        Next <i class="fa-solid fa-arrow-right"></i>
+      </button>
+    </div>
+  </div>
+
+</div><!-- /wizard-wrap -->
+
+<script>
+let currentStep = 1;
+const TOTAL = 5;
+let staffMembers = [];
+
+function updateUI() {
+  // Steps
+  for (let i = 1; i <= TOTAL; i++) {
+    const dot = document.getElementById('sd' + i);
+    const stepEl = document.getElementById('step' + i);
+    dot.className = 'step-dot' + (i === currentStep ? ' active' : (i < currentStep ? ' done' : ''));
+    if (i < TOTAL) {
+      const line = document.getElementById('sl' + i);
+      line.className = 'step-line' + (i < currentStep ? ' done' : '');
+    }
+    if (stepEl) stepEl.classList.toggle('active', i === currentStep);
+  }
+  document.getElementById('progressFill').style.width = (currentStep / TOTAL * 100) + '%';
+  document.getElementById('stepCounter').textContent = 'Step ' + currentStep + ' of ' + TOTAL;
+  document.getElementById('backBtn').style.display = currentStep > 1 ? '' : 'none';
+  document.getElementById('skipLink').style.display = currentStep === 4 ? '' : 'none';
+
+  const nextBtn = document.getElementById('nextBtn');
+  if (currentStep === TOTAL) {
+    nextBtn.innerHTML = '<i class="fa-solid fa-check"></i> Finish Setup';
+  } else {
+    nextBtn.innerHTML = 'Next <i class="fa-solid fa-arrow-right"></i>';
+  }
+}
+
+function togglePass(id, btn) {
+  const inp = document.getElementById(id);
+  const showing = inp.type === 'text';
+  inp.type = showing ? 'password' : 'text';
+  btn.querySelector('i').className = 'fa-solid fa-eye' + (showing ? '' : '-slash');
+}
+
+// ── Staff ────────────────────────────────────────────────────────────────────
+function addStaff() {
+  if (staffMembers.length >= 10) return;
+  const id = Date.now();
+  staffMembers.push({ id });
+  renderStaff();
+}
+
+function removeStaff(id) {
+  staffMembers = staffMembers.filter(s => s.id !== id);
+  renderStaff();
+}
+
+function renderStaff() {
+  const list = document.getElementById('staffList');
+  list.innerHTML = staffMembers.map(s => `
+    <div class="staff-card" id="sc${s.id}">
+      <input type="text" placeholder="Full name" id="sn${s.id}" style="font-size:13px;" />
+      <input type="text" placeholder="Username" id="su${s.id}" style="font-size:13px;" />
+      <select id="sr${s.id}" style="font-size:13px;">
+        <option value="staff">Staff</option>
+        <option value="admin">Admin</option>
+      </select>
+      <button class="btn-remove" onclick="removeStaff(${s.id})" title="Remove"><i class="fa-solid fa-trash"></i></button>
+    </div>
+  `).join('');
+  document.getElementById('staffCount').textContent = staffMembers.length + ' / 10';
+  document.getElementById('addStaffBtn').disabled = staffMembers.length >= 10;
+}
+
+// ── Folder browser ────────────────────────────────────────────────────────────
+async function browseFolder() {
+  const result = await window.api.wizard.selectFolder();
+  if (result) document.getElementById('backupFolder').value = result;
+}
+
+// ── Validation ────────────────────────────────────────────────────────────────
+function showAlert(id, msg) {
+  const el = document.getElementById(id);
+  el.textContent = msg;
+  el.classList.add('show');
+}
+function hideAlert(id) {
+  document.getElementById(id).classList.remove('show');
+}
+
+function validateStep2() {
+  const name = document.getElementById('pName').value.trim();
+  if (!name) { showAlert('step2Alert', 'Practice name is required.'); return false; }
+  hideAlert('step2Alert'); return true;
+}
+
+function validateStep3() {
+  const fullName = document.getElementById('aName').value.trim();
+  const username = document.getElementById('aUser').value.trim();
+  const pass     = document.getElementById('aPass').value;
+  const pass2    = document.getElementById('aPass2').value;
+
+  if (!fullName) { showAlert('step3Alert', 'Full name is required.'); return false; }
+  if (!username) { showAlert('step3Alert', 'Username is required.'); return false; }
+  if (pass.length < 8) { showAlert('step3Alert', 'Password must be at least 8 characters.'); return false; }
+  if (pass !== pass2) {
+    document.getElementById('passMatchErr').style.display = 'block';
+    showAlert('step3Alert', 'Passwords do not match.'); return false;
+  }
+  document.getElementById('passMatchErr').style.display = 'none';
+  hideAlert('step3Alert'); return true;
+}
+
+function collectStaff() {
+  return staffMembers.map(s => ({
+    full_name: document.getElementById('sn' + s.id)?.value.trim() || '',
+    username:  document.getElementById('su' + s.id)?.value.trim() || '',
+    role:      document.getElementById('sr' + s.id)?.value || 'staff'
+  })).filter(s => s.username);
+}
+
+// ── Navigation ────────────────────────────────────────────────────────────────
+function goBack() {
+  if (currentStep > 1) { currentStep--; updateUI(); }
+}
+
+function skipStep() {
+  if (currentStep < TOTAL) { currentStep++; updateUI(); }
+}
+
+async function goNext() {
+  if (currentStep === 2 && !validateStep2()) return;
+  if (currentStep === 3 && !validateStep3()) return;
+
+  if (currentStep === TOTAL) {
+    await finish();
+    return;
+  }
+
+  currentStep++;
+  updateUI();
+}
+
+async function finish() {
+  const nextBtn = document.getElementById('nextBtn');
+  nextBtn.disabled = true;
+  nextBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Setting up...';
+
+  const payload = {
+    practice: {
+      name:  document.getElementById('pName').value.trim(),
+      addr:  document.getElementById('pAddr').value.trim(),
+      city:  document.getElementById('pCity').value.trim(),
+      state: document.getElementById('pState').value.trim(),
+      zip:   document.getElementById('pZip').value.trim(),
+      phone: document.getElementById('pPhone').value.trim(),
+      email: document.getElementById('pEmail').value.trim(),
+      npi:   document.getElementById('pNpi').value.trim(),
+      ein:   document.getElementById('pEin').value.trim()
+    },
+    admin: {
+      full_name: document.getElementById('aName').value.trim(),
+      username:  document.getElementById('aUser').value.trim(),
+      password:  document.getElementById('aPass').value
+    },
+    staff:         collectStaff(),
+    backup_folder: document.getElementById('backupFolder').value.trim() || 'C:\\SpinePayBackups'
+  };
+
+  try {
+    const result = await window.api.wizard.complete(payload);
+    if (result.success) {
+      nextBtn.innerHTML = '<i class="fa-solid fa-check"></i> Done!';
+      setTimeout(() => window.api.wizard.launch(), 800);
+    } else {
+      showAlert('step5Alert', result.error || 'Setup failed. Please try again.');
+      nextBtn.disabled = false;
+      nextBtn.innerHTML = '<i class="fa-solid fa-check"></i> Finish Setup';
+    }
+  } catch (err) {
+    showAlert('step5Alert', 'An error occurred: ' + err.message);
+    nextBtn.disabled = false;
+    nextBtn.innerHTML = '<i class="fa-solid fa-check"></i> Finish Setup';
+  }
+}
+
+// Init
+updateUI();
+</script>
+</body>
+</html>

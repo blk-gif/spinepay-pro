@@ -151,5 +151,21 @@ contextBridge.exposeInMainWorld('api', {
   },
   transcribe: {
     audio: (buf) => ipcRenderer.invoke('transcribe-audio', buf)
+  },
+  wizard: {
+    complete: (payload) => ipcRenderer.invoke('wizard:complete', payload),
+    selectFolder: () => ipcRenderer.invoke('wizard:select-folder'),
+    launch: () => ipcRenderer.invoke('wizard:launch')
+  },
+  backup: {
+    runNow: () => ipcRenderer.invoke('backup:run-now'),
+    getStatus: () => ipcRenderer.invoke('backup:get-status'),
+    list: () => ipcRenderer.invoke('backup:list'),
+    setFolder: () => ipcRenderer.invoke('backup:set-folder')
+  },
+  updater: {
+    onUpdateAvailable: (cb) => ipcRenderer.on('update-available', cb),
+    onUpdateDownloaded: (cb) => ipcRenderer.on('update-downloaded', cb),
+    installNow: () => ipcRenderer.invoke('updater:install-now')
   }
 });

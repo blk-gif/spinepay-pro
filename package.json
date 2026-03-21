@@ -6,14 +6,18 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "build": "electron-builder",
+    "build": "electron-builder --win",
+    "dist": "node create-icon.js && electron-builder --win --publish never",
     "postinstall": "electron-rebuild -f -w better-sqlite3",
     "test-speech": "powershell.exe -ExecutionPolicy Bypass -NonInteractive -File speech-server.ps1"
   },
   "dependencies": {
     "@electron/rebuild": "^4.0.3",
     "@xenova/transformers": "^2.17.2",
+    "archiver": "^7.0.1",
     "better-sqlite3": "^9.4.3",
+    "electron-updater": "^6.3.9",
+    "node-cron": "^3.0.3",
     "stripe": "^14.18.0"
   },
   "devDependencies": {
@@ -23,11 +27,26 @@
   "build": {
     "appId": "com.waldenbailey.spinepay-pro",
     "productName": "SpinePay Pro",
+    "copyright": "Copyright 2026 Walden Bailey Chiropractic",
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "assets/icon.ico"
     },
-    "mac": {
-      "target": "dmg"
-    }
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerHeaderIcon": "assets/icon.ico",
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "SpinePay Pro"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "*.js",
+      "package.json"
+    ]
   }
 }
