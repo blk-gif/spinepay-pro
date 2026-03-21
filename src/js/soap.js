@@ -1162,7 +1162,7 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
     win.document.close();
   }
 
-  // ── Voice Dictation (Whisper offline) ─────────────────────────────────────────
+  // ── Voice Dictation (Whisper offline via @xenova/transformers) ────────────────
   let recordingCtx    = null;
   let recordingProc   = null;
   let recordingStream = null;
@@ -1172,31 +1172,14 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
     return localStorage.getItem('soapMicDeviceId') || '';
   }
 
-  // Encode captured Float32 PCM chunks into a 16kHz mono WAV buffer
-  function encodeWAV(chunks, sampleRate) {
+  // Flatten Float32 PCM chunks into a single ArrayBuffer for IPC transfer
+  function flattenPCM(chunks) {
     let len = 0;
     chunks.forEach(c => len += c.length);
-    const samples = new Float32Array(len);
+    const out = new Float32Array(len);
     let off = 0;
-    chunks.forEach(c => { samples.set(c, off); off += c.length; });
-
-    const buf  = new ArrayBuffer(44 + samples.length * 2);
-    const view = new DataView(buf);
-    const ws   = (o, s) => { for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i)); };
-    ws(0,  'RIFF'); view.setUint32(4,  36 + samples.length * 2, true);
-    ws(8,  'WAVE'); ws(12, 'fmt ');
-    view.setUint32(16, 16, true);  view.setUint16(20, 1, true);
-    view.setUint16(22, 1, true);   view.setUint32(24, sampleRate, true);
-    view.setUint32(28, sampleRate * 2, true); view.setUint16(32, 2, true);
-    view.setUint16(34, 16, true);  ws(36, 'data');
-    view.setUint32(40, samples.length * 2, true);
-    let o = 44;
-    for (let i = 0; i < samples.length; i++) {
-      const s = Math.max(-1, Math.min(1, samples[i]));
-      view.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
-      o += 2;
-    }
-    return buf;
+    chunks.forEach(c => { out.set(c, off); off += c.length; });
+    return out.buffer;
   }
 
   async function _startCapture(fieldId, global) {
@@ -1295,8 +1278,8 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
 
     showDictateStatus('\u23F3 Transcribing...');
 
-    const wavBuf = encodeWAV(chunks, 16000);
-    window.api.transcribe.audio(wavBuf).then(result => {
+    const pcmBuf = flattenPCM(chunks);
+    window.api.transcribe.audio(pcmBuf).then(result => {
       const statusEl = document.getElementById('dictateStatus');
       if (statusEl) statusEl.style.display = 'none';
 
