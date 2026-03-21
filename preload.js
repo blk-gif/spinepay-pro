@@ -130,18 +130,6 @@ contextBridge.exposeInMainWorld('api', {
     update: (id, data) => ipcRenderer.invoke('timeclock:update', { id, data }),
     getAllUsers: () => ipcRenderer.invoke('timeclock:get-all-users')
   },
-  sapi: {
-    start:    () => ipcRenderer.invoke('sapi:start'),
-    stop:     () => ipcRenderer.invoke('sapi:stop'),
-    onResult: (cb) => ipcRenderer.on('sapi:result', (_e, text) => cb(text)),
-    removeResultListeners: () => ipcRenderer.removeAllListeners('sapi:result')
-  },
-  pipelineTest: {
-    start:           () => ipcRenderer.invoke('start-dictation'),
-    stop:            () => ipcRenderer.invoke('stop-dictation'),
-    onResult:        (cb) => ipcRenderer.on('dictation-result', (_e, data) => cb(data)),
-    removeListeners: () => ipcRenderer.removeAllListeners('dictation-result')
-  },
   hcfa: {
     getByPatient: (patientId) => ipcRenderer.invoke('hcfa:get-by-patient', patientId),
     getBySoap: (soapNoteId) => ipcRenderer.invoke('hcfa:get-by-soap', soapNoteId),
@@ -155,8 +143,5 @@ contextBridge.exposeInMainWorld('api', {
   },
   print: {
     showDialog: () => ipcRenderer.invoke('print:show-dialog')
-  },
-  mainLog: {
-    onLog: (cb) => ipcRenderer.on('main-log', (_e, data) => cb(data))
   }
 });

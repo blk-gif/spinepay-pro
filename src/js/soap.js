@@ -143,14 +143,8 @@ window.SoapNotes = (() => {
                 <div id="soapLevelBar" style="height:100%;width:0%;border-radius:3px;transition:width 60ms linear;background:#ef4444;"></div>
               </div>
             </div>
-            <button type="button" id="pipelineTestBtn"
-              style="background:purple;color:white;border:none;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;white-space:nowrap;"
-              title="Run pipeline diagnostics to trace SAPI → IPC → renderer">
-              🔬 Pipeline Test
-            </button>
             <button class="modal-close" id="soapModalClose">&times;</button>
           </div>
-          <div id="pipeline-log" style="display:none;font-family:monospace;font-size:11px;max-height:150px;overflow-y:auto;background:#111;padding:8px;border-bottom:1px solid #333;"></div>
           <div class="modal-body">
             <form id="soapForm">
               <div class="form-grid form-grid-2">
@@ -1168,46 +1162,69 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
     win.document.close();
   }
 
-  // ── Voice Dictation (Web Speech API — Windows Speech Recognition) ─────────────
+  // ── Voice Dictation (Web Speech API) ─────────────────────────────────────────
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  let recognition = null;
 
-  function handleDictationResult(text) {
-    console.log('[Renderer] Received transcript:', text);
-    const lower = text.toLowerCase().trim();
-    if (lower === 'subjective') { recordingField = 'soapSubjective'; return; }
-    if (lower === 'objective')  { recordingField = 'soapObjective';  return; }
-    if (lower === 'assessment') { recordingField = 'soapAssessment'; return; }
-    if (lower === 'plan')       { recordingField = 'soapPlan';       return; }
-    const field = document.getElementById(recordingField);
-    if (field) {
-      field.value += text + ' ';
-      field.dispatchEvent(new Event('input', { bubbles: true }));
-      console.log('[Renderer] Written to field:', recordingField);
-    } else {
-      console.error('[Renderer] Field not found:', recordingField);
-    }
+  if (SpeechRecognition) {
+    recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+
+    recognition.onresult = (event) => {
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const text  = event.results[i][0].transcript;
+        const final = event.results[i].isFinal;
+        if (final) {
+          const lower = text.toLowerCase().trim();
+          if (lower.includes('subjective')) { recordingField = 'soapSubjective'; return; }
+          if (lower.includes('objective'))  { recordingField = 'soapObjective';  return; }
+          if (lower.includes('assessment')) { recordingField = 'soapAssessment'; return; }
+          if (lower.includes('plan'))       { recordingField = 'soapPlan';       return; }
+          const field = document.getElementById(recordingField);
+          if (field) {
+            field.value += text + ' ';
+            field.dispatchEvent(new Event('input', { bubbles: true }));
+            console.log('[Voice] Written:', text, '→', recordingField);
+          }
+        }
+      }
+    };
+
+    recognition.onerror = (e) => {
+      if (e.error === 'no-speech' || e.error === 'aborted') return;
+      console.error('[Voice] Error:', e.error);
+    };
+
+    recognition.onend = () => {
+      if (isRecording) setTimeout(() => recognition.start(), 200);
+    };
   }
 
-  async function startDictation(fieldId) {
+  function getSelectedMicId() {
+    return localStorage.getItem('soapMicDeviceId') || '';
+  }
+
+  function startDictation(fieldId) {
     if (isRecording) { stopDictation(); return; }
+    if (!recognition) { toast('Speech recognition not available in this browser', 'error'); return; }
     recordingField = fieldId;
     globalDictMode = false;
     isRecording    = true;
-    window.api.sapi.removeResultListeners();
-    window.api.sapi.onResult((text) => handleDictationResult(text));
-    await window.api.sapi.start();
+    recognition.start();
     updateMicUI(fieldId, true);
     showDictateStatus('LISTENING \u25cf ' + fieldId.replace('soap', '').toUpperCase() + ' \u2014 click mic to stop');
     startLevelMeter();
   }
 
-  async function startGlobalDictation() {
+  function startGlobalDictation() {
     if (isRecording) { stopDictation(); return; }
+    if (!recognition) { toast('Speech recognition not available in this browser', 'error'); return; }
     recordingField = 'soapSubjective';
     globalDictMode = true;
     isRecording    = true;
-    window.api.sapi.removeResultListeners();
-    window.api.sapi.onResult((text) => handleDictationResult(text));
-    await window.api.sapi.start();
+    recognition.start();
     const dictBtn = document.getElementById('dictateAllBtn');
     if (dictBtn) {
       dictBtn.style.background  = 'rgba(220,38,38,0.15)';
@@ -1220,16 +1237,10 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
     startLevelMeter();
   }
 
-  function getSelectedMicId() {
-    return localStorage.getItem('soapMicDeviceId') || '';
-  }
-
   // AudioContext analyser — animates the level bar in the status pill
   function startLevelMeter() {
     const deviceId = getSelectedMicId();
-    const audioConstraint = deviceId
-      ? { deviceId: { exact: deviceId } }
-      : true;
+    const audioConstraint = deviceId ? { deviceId: { exact: deviceId } } : true;
     navigator.mediaDevices.getUserMedia({ audio: audioConstraint, video: false })
       .then((stream) => {
         levelStream  = stream;
@@ -1252,7 +1263,7 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
         }
         draw();
       })
-      .catch(() => { /* level meter is optional; mic still works for speech */ });
+      .catch(() => { /* level meter is optional */ });
   }
 
   function stopLevelMeter() {
@@ -1263,45 +1274,10 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
     if (bar) bar.style.width = '0%';
   }
 
-  // Parse SOAP section keywords from a global transcript and route text to fields
-  function distributeTranscript(text) {
-    const fieldMap = {
-      subjective: 'soapSubjective',
-      objective:  'soapObjective',
-      assessment: 'soapAssessment',
-      plan:       'soapPlan'
-    };
-    const kwPattern = /\b(subjective|objective|assessment|plan)\b/gi;
-    const parts  = text.split(kwPattern);
-    // parts: [pre, kw, content, kw, content, ...]
-
-    if (parts.length < 3) {
-      // No keywords — put everything in Subjective
-      const ta = document.getElementById('soapSubjective');
-      if (ta) { const e = ta.value.trimEnd(); ta.value = e ? e + ' ' + text : text; }
-      toast('Tip: say "Subjective", "Objective", "Assessment", or "Plan" to separate sections.', 'info');
-      return;
-    }
-
-    let currentField = 'soapSubjective';
-    for (let i = 0; i < parts.length; i++) {
-      const chunk = parts[i].trim();
-      if (!chunk) continue;
-      const lower = chunk.toLowerCase();
-      if (fieldMap[lower]) {
-        currentField = fieldMap[lower];
-      } else {
-        const ta = document.getElementById(currentField);
-        if (ta) { const e = ta.value.trimEnd(); ta.value = e ? e + ' ' + chunk : chunk; ta.scrollTop = ta.scrollHeight; }
-      }
-    }
-  }
-
   // Called when mic button clicked again, modal closes, or save triggered
   function stopDictation() {
     isRecording = false;
-    window.api.sapi.removeResultListeners();
-    window.api.sapi.stop();
+    if (recognition) recognition.stop();
     stopLevelMeter();
     resetDictateUI();
   }
@@ -1387,46 +1363,6 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
     document.getElementById('dictateAllBtn')?.addEventListener('click', () => {
       if (isRecording) stopDictation();
       else startGlobalDictation();
-    });
-
-    // Pipeline test button
-    document.getElementById('pipelineTestBtn')?.addEventListener('click', async () => {
-      const log = document.getElementById('pipeline-log');
-      log.style.display = 'block';
-      log.innerHTML = '';
-      const addLog = (msg, color = 'white') => {
-        log.innerHTML += `<div style="color:${color}">${new Date().toISOString().substr(11,8)} — ${msg}</div>`;
-        log.scrollTop = log.scrollHeight;
-        console.log('[PipelineTest]', msg);
-      };
-
-      addLog('Step 1: Invoking start-dictation IPC...', 'yellow');
-      await window.api.pipelineTest.start();
-      addLog('Step 1 DONE — IPC call returned', 'lime');
-
-      addLog('Step 2: Registering dictation-result listener...', 'yellow');
-      window.api.pipelineTest.removeListeners();
-      window.api.pipelineTest.onResult((data) => {
-        addLog('Step 3: GOT RESULT → ' + JSON.stringify(data), 'lime');
-      });
-      addLog('Step 2 DONE — listener registered, speak now...', 'lime');
-
-      setTimeout(async () => {
-        addLog('Step 4: Stopping after 10s timeout...', 'yellow');
-        await window.api.pipelineTest.stop();
-        addLog('Step 4 DONE — stopped', 'lime');
-      }, 10000);
-    });
-
-    // Forward main-process logs into pipeline-log div
-    window.api.mainLog.onLog(({ type, msg }) => {
-      const log = document.getElementById('pipeline-log');
-      if (log) {
-        const color = type === 'error' ? 'salmon' : 'cyan';
-        log.innerHTML += `<div style="color:${color}">[MAIN] ${msg}</div>`;
-        log.scrollTop = log.scrollHeight;
-      }
-      console.log('[MAIN\u2192RENDERER]', msg);
     });
 
     // HCFA buttons

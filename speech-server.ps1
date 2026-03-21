@@ -1,44 +1,53 @@
-$log = "$env:TEMP\spinepay-speech.log"
-Set-Content $log "$(Get-Date) - Script started"
+$global:log = "$env:TEMP\spinepay-speech.log"
+[System.IO.File]::WriteAllText($global:log, "$(Get-Date) - Script started`n")
+
+function Log($msg) {
+    [System.IO.File]::AppendAllText($global:log, "$(Get-Date) - $msg`n")
+}
 
 try {
     Add-Type -AssemblyName System.Speech
-    Add-Content $log "$(Get-Date) - Assembly loaded"
+    Log "Assembly loaded"
 
-    $rec = New-Object System.Speech.Recognition.SpeechRecognitionEngine
-    Add-Content $log "$(Get-Date) - Engine created"
+    $global:rec = New-Object System.Speech.Recognition.SpeechRecognitionEngine
+    Log "Engine created"
 
-    $rec.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar))
-    Add-Content $log "$(Get-Date) - Grammar loaded"
+    $global:rec.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar))
+    Log "Grammar loaded"
 
-    $rec.SetInputToDefaultAudioDevice()
-    Add-Content $log "$(Get-Date) - Audio device set"
+    $global:rec.SetInputToDefaultAudioDevice()
+    Log "Audio device set"
 
-    $rec.add_SpeechRecognized({
-        param($s, $e)
-        $t = $e.Result.Text
-        Add-Content $log "$(Get-Date) - Recognized: $t"
-        Write-Host "RESULT:$t"
+    # Use Register-ObjectEvent so handlers run on the main thread (thread-safe)
+    Register-ObjectEvent -InputObject $global:rec -EventName SpeechDetected -SourceIdentifier 'SD' -Action {
+        [System.IO.File]::AppendAllText($global:log, "$(Get-Date) - *** SPEECH DETECTED ***`n")
+    } | Out-Null
+
+    Register-ObjectEvent -InputObject $global:rec -EventName SpeechRecognized -SourceIdentifier 'SR' -Action {
+        $t = $Event.SourceEventArgs.Result.Text
+        [System.IO.File]::AppendAllText($global:log, "$(Get-Date) - Recognized: $t`n")
+        [Console]::Out.WriteLine("RESULT:$t")
         [Console]::Out.Flush()
-    })
+    } | Out-Null
 
-    $rec.add_SpeechRecognitionRejected({
-        Add-Content $log "$(Get-Date) - Rejected (low confidence)"
-    })
+    Register-ObjectEvent -InputObject $global:rec -EventName SpeechRecognitionRejected -SourceIdentifier 'SRR' -Action {
+        [System.IO.File]::AppendAllText($global:log, "$(Get-Date) - Rejected (low confidence)`n")
+    } | Out-Null
 
-    $rec.add_SpeechDetected({
-        Add-Content $log "$(Get-Date) - Speech detected"
-    })
+    $global:rec.RecognizeAsync([System.Speech.Recognition.RecognizeMode]::Multiple)
+    Log "RecognizeAsync started, listening..."
 
-    $rec.RecognizeAsync([System.Speech.Recognition.RecognizeMode]::Multiple)
-    Add-Content $log "$(Get-Date) - RecognizeAsync started, entering loop"
-
+    $tick = 0
     while ($true) {
-        Start-Sleep -Milliseconds 500
+        # Wait-Event pumps the event queue so Register-ObjectEvent handlers fire
+        Wait-Event -Timeout 1 -ErrorAction SilentlyContinue | Remove-Event -ErrorAction SilentlyContinue
+        $tick++
+        if ($tick % 5 -eq 0) {
+            Log "Heartbeat tick=$tick"
+        }
     }
 
 } catch {
-    Add-Content $log "$(Get-Date) - ERROR: $_"
+    [System.IO.File]::AppendAllText($global:log, "$(Get-Date) - CAUGHT: $_ ($($_.Exception.GetType().FullName))`n")
     Write-Host "ERROR:$_"
-    [Console]::Out.Flush()
 }

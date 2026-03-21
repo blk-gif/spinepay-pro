@@ -14,21 +14,6 @@ let mainWindow;
 let db;
 let currentUser = null;
 
-// Forward main-process logs to renderer DevTools
-const originalConsoleLog = console.log;
-const originalConsoleError = console.error;
-
-function forwardLog(type, ...args) {
-  const msg = args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a)).join(' ');
-  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
-    mainWindow.webContents.send('main-log', { type, msg });
-  }
-  type === 'error' ? originalConsoleError(...args) : originalConsoleLog(...args);
-}
-
-console.log = (...args) => forwardLog('log', ...args);
-console.error = (...args) => forwardLog('error', ...args);
-
 function hashPassword(password) {
   return crypto.createHash('sha256').update(password).digest('hex');
 }
@@ -1224,76 +1209,6 @@ ipcMain.handle('hcfa:delete', (event, id) => {
   return { success: true };
 });
 
-// ── WINDOWS SAPI SPEECH RECOGNITION ──────────────────────────────────────────
-let speechProcess = null;
-
-function startDictation() {
-  console.log('[SAPI] startDictation called');
-  if (speechProcess) {
-    console.log('[SAPI] Already running — killing old process first');
-    speechProcess.kill();
-    speechProcess = null;
-  }
-
-  const scriptPath = path.join(__dirname, 'speech-server.ps1');
-  console.log('[SAPI] Script path:', scriptPath, '| exists:', fs.existsSync(scriptPath));
-
-  // windowsHide: false gives the process a real desktop/console context
-  // so Windows grants it full audio permissions
-  speechProcess = spawn('powershell.exe', [
-    '-ExecutionPolicy', 'Bypass',
-    '-File', scriptPath
-  ], {
-    shell: false,
-    windowsHide: false,
-    stdio: ['pipe', 'pipe', 'pipe']
-  });
-
-  console.log('[SAPI] PID:', speechProcess.pid);
-
-  let buffer = '';
-  speechProcess.stdout.on('data', (data) => {
-    console.log('[SAPI] raw stdout:', JSON.stringify(data.toString()));
-    buffer += data.toString();
-    const lines = buffer.split('\n');
-    buffer = lines.pop();
-    lines.forEach(line => {
-      line = line.trim();
-      if (line.startsWith('RESULT:')) {
-        const text = line.replace('RESULT:', '').trim();
-        if (text && mainWindow && !mainWindow.isDestroyed()) {
-          console.log('[SAPI] Sending to renderer:', text);
-          mainWindow.webContents.send('dictation-result', { text, final: true });
-          mainWindow.webContents.send('sapi:result', text);
-        }
-      } else if (line.startsWith('ERROR:')) {
-        console.error('[SAPI] Script error:', line);
-      }
-    });
-  });
-
-  speechProcess.stderr.on('data', d => console.log('[SAPI stderr]', d.toString().trim()));
-
-  speechProcess.on('error', err => console.error('[SAPI] Spawn error:', err.message));
-
-  speechProcess.on('close', code => {
-    console.log('[SAPI] closed with code:', code);
-    speechProcess = null;
-  });
-}
-
-function stopDictation() {
-  console.log('[SAPI] stopDictation called');
-  if (speechProcess) {
-    speechProcess.kill();
-    speechProcess = null;
-  }
-}
-
-ipcMain.handle('start-dictation', () => startDictation());
-ipcMain.handle('stop-dictation', () => stopDictation());
-ipcMain.handle('sapi:start', () => startDictation());
-ipcMain.handle('sapi:stop', () => stopDictation());
 
 // ── TIME CLOCK ───────────────────────────────────────────────────────────────
 ipcMain.handle('timeclock:clock-in', (event, { userId, notes }) => {
@@ -1359,6 +1274,12 @@ ipcMain.handle('file:save-dialog', async (event, { defaultPath, content }) => {
   fs.writeFileSync(result.filePath, content, 'utf-8');
   return { success: true, filePath: result.filePath };
 });
+
+// Use the user's installed Chrome for Web Speech API support
+const chromePath = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+if (fs.existsSync(chromePath)) {
+  app.commandLine.appendSwitch('browser-subprocess-path', chromePath);
+}
 
 // APP LIFECYCLE
 app.whenReady().then(() => {
