@@ -1216,11 +1216,13 @@ let whisperLoading  = false;
 
 ipcMain.handle('speech:transcribe', async (event, audioData) => {
   try {
+    console.log('[Whisper] transcribe called, audioData type:', typeof audioData, Array.isArray(audioData) ? 'array len=' + audioData.length : '');
     if (!whisperPipeline) {
       if (whisperLoading) return { success: false, error: 'Model is still loading, please wait a moment and try again.' };
       whisperLoading = true;
+      console.log('[Whisper] Loading model…');
       const { pipeline, env } = await import('@xenova/transformers');
-      env.allowLocalModels = false; // use HuggingFace Hub cache
+      env.allowLocalModels = false;
       whisperPipeline = await pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny.en', {
         chunk_length_s: 30,
         stride_length_s: 5,
@@ -1232,12 +1234,16 @@ ipcMain.handle('speech:transcribe', async (event, audioData) => {
         }
       });
       whisperLoading = false;
+      console.log('[Whisper] Model loaded successfully');
     }
     const float32 = audioData instanceof Float32Array ? audioData : new Float32Array(audioData);
-    const result  = await whisperPipeline(float32, { language: 'english', task: 'transcribe' });
+    console.log('[Whisper] Running transcription on', float32.length, 'samples (', (float32.length / 16000).toFixed(1), 's )');
+    const result = await whisperPipeline(float32, { language: 'english', task: 'transcribe' });
+    console.log('[Whisper] Result:', result);
     return { success: true, text: (result.text || '').trim() };
   } catch (err) {
     whisperLoading = false;
+    console.error('[Whisper] Error:', err.message);
     return { success: false, error: err.message };
   }
 });

@@ -1239,39 +1239,50 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
 
     try {
       const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+      console.log('[SpinePay] Step 1 — blob size:', blob.size, 'bytes, mimeType:', mediaRecorder.mimeType);
 
       if (blob.size < 500) {
-        toast('No audio captured. Make sure your microphone is working.', 'warning');
+        toast('No audio captured — blob too small (' + blob.size + ' bytes). Check mic selection.', 'warning');
         resetDictateUI();
         return;
       }
 
-      // Check model load status — show download progress on first use
+      // Check model status and register progress listener once
       const status = await window.api.speech.status();
-      if (!status.loaded) {
-        showDictateStatus('Loading speech model\u2026 (first use — please wait)');
+      console.log('[SpinePay] Step 2 — Whisper status:', status);
+      if (!status.loaded && !status.loading) {
+        showDictateStatus('Loading speech model\u2026');
         window.api.speech.onProgress((p) => {
           if (p && p.status === 'progress' && p.total) {
             const pct = Math.round((p.loaded / p.total) * 100);
             showDictateStatus('Downloading model\u2026 ' + pct + '%');
           }
         });
+      } else if (status.loading) {
+        toast('Model is loading — please wait a few seconds and try again.', 'info');
+        resetDictateUI();
+        return;
       }
 
-      // Decode and resample to 16 kHz mono (Whisper requirement)
+      // Decode audio
+      console.log('[SpinePay] Step 3 — decoding audio…');
       const arrayBuffer = await blob.arrayBuffer();
       const srcCtx = new AudioContext();
       let srcBuffer;
       try {
         srcBuffer = await srcCtx.decodeAudioData(arrayBuffer);
-      } catch (_) {
-        toast('Could not decode audio. Please try again.', 'error');
+        console.log('[SpinePay] Step 3 OK — duration:', srcBuffer.duration.toFixed(2), 's, sampleRate:', srcBuffer.sampleRate);
+      } catch (decodeErr) {
+        console.error('[SpinePay] Step 3 FAILED — decode error:', decodeErr);
+        toast('Could not decode audio (' + decodeErr.message + '). Try again.', 'error');
         await srcCtx.close();
         resetDictateUI();
         return;
       }
       await srcCtx.close();
 
+      // Resample to 16 kHz mono
+      console.log('[SpinePay] Step 4 — resampling to 16 kHz…');
       const TARGET_HZ = 16000;
       const offCtx = new OfflineAudioContext(1, Math.ceil(srcBuffer.duration * TARGET_HZ), TARGET_HZ);
       const src    = offCtx.createBufferSource();
@@ -1280,25 +1291,32 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
       src.start(0);
       const resampled = await offCtx.startRendering();
       const float32   = resampled.getChannelData(0);
+      console.log('[SpinePay] Step 4 OK — float32 samples:', float32.length);
 
+      // Whisper transcription
+      console.log('[SpinePay] Step 5 — sending to Whisper…');
+      showDictateStatus('Transcribing with Whisper\u2026');
       const result = await window.api.speech.transcribe(float32);
+      console.log('[SpinePay] Step 5 result:', result);
 
       if (!result.success) {
-        toast((result.error || '').includes('loading')
+        const errMsg = result.error || 'Unknown error';
+        console.error('[SpinePay] Whisper error:', errMsg);
+        toast(errMsg.includes('loading')
           ? 'Model still loading — please wait a moment and try again.'
-          : 'Transcription failed: ' + result.error, 'error');
+          : 'Transcription failed: ' + errMsg, 'error');
         resetDictateUI();
         return;
       }
 
       const text = (result.text || '').trim();
+      console.log('[SpinePay] Step 6 — transcript text: "' + text + '"');
+
       if (!text) {
-        toast('No speech detected. Speak clearly, then click the mic button to stop.', 'warning');
+        toast('No speech detected. Speak clearly into the mic, then click to stop.', 'warning');
         resetDictateUI();
         return;
       }
-
-      console.log('[SpinePay] Transcript:', text);
 
       if (globalDictMode) {
         distributeTranscript(text);
@@ -1309,7 +1327,9 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
           ta.value = existing ? existing + ' ' + text : text;
           ta.scrollTop = ta.scrollHeight;
           ta.dispatchEvent(new Event('input', { bubbles: true }));
-          console.log('[SpinePay] Written to', recordingField);
+          console.log('[SpinePay] Written to', recordingField, ':', text);
+        } else {
+          console.error('[SpinePay] Target field not found:', recordingField);
         }
       }
 
