@@ -5,9 +5,6 @@ const fs = require('fs');
 const { runMigrations } = require('./db-migrations');
 
 app.commandLine.appendSwitch('lang', 'en-US');
-app.commandLine.appendSwitch('allow-insecure-localhost');
-app.commandLine.appendSwitch('disable-web-security');
-app.commandLine.appendSwitch('ignore-certificate-errors');
 app.commandLine.appendSwitch('enable-speech-dispatcher');
 app.commandLine.appendSwitch('enable-features', 'WebSpeechAPI');
 
@@ -525,10 +522,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
-      webSecurity: false,
-      allowRunningInsecureContent: true,
-      experimentalFeatures: true
+      sandbox: false
     },
     icon: path.join(__dirname, 'assets', 'icon.png'),
     show: false

@@ -1199,6 +1199,9 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
     plan:       'soapPlan'
   };
 
+  let recognitionRunning = false;
+  let isListening        = false;
+
   function beginSpeech() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
@@ -1206,7 +1209,7 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
       return false;
     }
 
-    // Log field IDs so DevTools console confirms they exist
+    // Confirm field IDs resolve
     console.log('[SpinePay] SOAP field targets:', {
       soapSubjective: !!document.getElementById('soapSubjective'),
       soapObjective:  !!document.getElementById('soapObjective'),
@@ -1218,6 +1221,11 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
     rec.continuous     = true;
     rec.interimResults = true;
     rec.lang           = 'en-US';
+
+    rec.onstart = () => {
+      recognitionRunning = false; // reset so onend can restart
+      console.log('[SpinePay] Recognition started successfully');
+    };
 
     rec.onresult = (event) => {
       let interimText = '';
@@ -1236,7 +1244,6 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
       if (!combined) return;
 
       if (globalDictMode) {
-        // Check for section-switch keywords in the transcript
         const lower = combined.toLowerCase();
         let switched = false;
         for (const [kw, fieldId] of Object.entries(SECTION_KEYWORDS)) {
@@ -1254,16 +1261,13 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
       if (!ta) return;
 
       if (finalText.trim()) {
-        // Commit final text to the textarea
         const existing = ta.value.trimEnd();
         ta.value = existing ? existing + ' ' + finalText.trim() : finalText.trim();
         ta.scrollTop = ta.scrollHeight;
         ta.dispatchEvent(new Event('input', { bubbles: true }));
-        // Clear interim preview
         const preview = document.getElementById('dictPreview-' + recordingField);
         if (preview) { preview.textContent = ''; preview.style.display = 'none'; }
       } else if (interimText.trim()) {
-        // Show live interim preview below the textarea
         const preview = document.getElementById('dictPreview-' + recordingField);
         if (preview) {
           preview.textContent = interimText.trim() + '\u2026';
@@ -1273,30 +1277,57 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
     };
 
     rec.onerror = (event) => {
-      if (event.error === 'no-speech') return; // ignore silently
+      if (event.error === 'no-speech') return;
+      if (event.error === 'aborted') {
+        console.log('[SpinePay] Recognition aborted — will restart if still listening');
+        return;
+      }
       if (event.error === 'network') {
-        setTimeout(() => { if (isRecording) { try { rec.start(); } catch (_) {} } }, 1000);
+        setTimeout(() => {
+          if (isListening && !recognitionRunning) {
+            recognitionRunning = true;
+            try { rec.start(); } catch (e) { console.error('[SpinePay] Restart failed:', e); }
+          }
+        }, 1000);
         return;
       }
       console.error('[SpinePay] Speech error:', event.error);
     };
 
     rec.onend = () => {
-      if (isRecording) {
-        setTimeout(() => { try { rec.start(); } catch (_) {} }, 300);
+      recognitionRunning = false;
+      console.log('[SpinePay] recognition ended, isListening:', isListening);
+      if (isListening) {
+        setTimeout(() => {
+          if (isListening && !recognitionRunning) {
+            recognitionRunning = true;
+            try { rec.start(); } catch (e) { console.error('[SpinePay] Restart failed:', e); }
+          }
+        }, 300);
       }
     };
+
+    // Guard: only call start() once
+    if (recognitionRunning) {
+      console.log('[SpinePay] Already running, skipping start');
+      return false;
+    }
+    recognitionRunning = true;
+    isListening        = true;
 
     try {
       rec.start();
     } catch (err) {
+      recognitionRunning = false;
+      isListening        = false;
       toast('Could not start microphone: ' + err.message, 'error');
       return false;
     }
 
     activeRecognition = rec;
     isRecording       = true;
-    startLevelMeter();
+    // NOTE: startLevelMeter() intentionally NOT called here — a competing getUserMedia
+    // on the same device causes Chromium to abort the speech recognition stream.
     return true;
   }
 
@@ -1386,8 +1417,11 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
 
   // Called when modal closes or save is triggered
   function stopDictation() {
-    isRecording = false;
+    isListening        = false;
+    recognitionRunning = false;
+    isRecording        = false;
     if (activeRecognition) {
+      console.log('[SpinePay] recognition.stop() called from stopDictation', new Error().stack);
       try { activeRecognition.stop(); } catch (_) {}
       activeRecognition = null;
     }
