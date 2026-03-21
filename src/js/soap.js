@@ -1199,70 +1199,55 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
     plan:       'soapPlan'
   };
 
-  let recognitionRunning = false;
-  let isListening        = false;
+  // isListening  — intent: should we be listening right now?
+  // isRestarting — lock: a restart is already scheduled, don't schedule another
+  let isListening  = false;
+  let isRestarting = false;
 
-  function beginSpeech() {
+  // Factory: always create a FRESH instance — reusing a stopped instance throws "already started"
+  function createRecognition() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      toast('Speech recognition not supported in this browser.', 'error');
-      return false;
-    }
-
-    // Confirm field IDs resolve
-    console.log('[SpinePay] SOAP field targets:', {
-      soapSubjective: !!document.getElementById('soapSubjective'),
-      soapObjective:  !!document.getElementById('soapObjective'),
-      soapAssessment: !!document.getElementById('soapAssessment'),
-      soapPlan:       !!document.getElementById('soapPlan')
-    });
-
     const rec = new SpeechRecognition();
     rec.continuous     = true;
     rec.interimResults = true;
     rec.lang           = 'en-US';
 
     rec.onstart = () => {
-      recognitionRunning = false; // reset so onend can restart
-      console.log('[SpinePay] Recognition started successfully');
+      isRestarting = false;
+      console.log('[SpinePay] Recognition started');
     };
 
     rec.onresult = (event) => {
-      let interimText = '';
       let finalText   = '';
+      let interimText = '';
 
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          finalText += transcript;
-        } else {
-          interimText += transcript;
-        }
+        const t = event.results[i][0].transcript;
+        if (event.results[i].isFinal) finalText   += t;
+        else                          interimText += t;
       }
 
       const combined = (finalText || interimText).trim();
       if (!combined) return;
 
+      // In global mode, check for section-switch keywords
       if (globalDictMode) {
         const lower = combined.toLowerCase();
-        let switched = false;
         for (const [kw, fieldId] of Object.entries(SECTION_KEYWORDS)) {
           if (lower.includes(kw)) {
             recordingField = fieldId;
             clearInterimPreviews();
-            switched = true;
-            break;
+            return;
           }
         }
-        if (switched) return;
       }
 
       const ta = document.getElementById(recordingField);
       if (!ta) return;
 
       if (finalText.trim()) {
-        const existing = ta.value.trimEnd();
-        ta.value = existing ? existing + ' ' + finalText.trim() : finalText.trim();
+        console.log('[SpinePay] Transcript written to', recordingField, ':', finalText.trim());
+        ta.value += finalText.trim() + ' ';
         ta.scrollTop = ta.scrollHeight;
         ta.dispatchEvent(new Event('input', { bubbles: true }));
         const preview = document.getElementById('dictPreview-' + recordingField);
@@ -1277,57 +1262,60 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
     };
 
     rec.onerror = (event) => {
-      if (event.error === 'no-speech') return;
-      if (event.error === 'aborted') {
-        console.log('[SpinePay] Recognition aborted — will restart if still listening');
-        return;
-      }
-      if (event.error === 'network') {
-        setTimeout(() => {
-          if (isListening && !recognitionRunning) {
-            recognitionRunning = true;
-            try { rec.start(); } catch (e) { console.error('[SpinePay] Restart failed:', e); }
-          }
-        }, 1000);
-        return;
-      }
-      console.error('[SpinePay] Speech error:', event.error);
+      if (event.error === 'no-speech') return; // ignore
+      if (event.error === 'aborted')   return; // we caused it intentionally
+      console.log('[SpinePay] Speech error:', event.error);
     };
 
     rec.onend = () => {
-      recognitionRunning = false;
-      console.log('[SpinePay] recognition ended, isListening:', isListening);
-      if (isListening) {
+      console.log('[SpinePay] onend fired, isListening:', isListening, 'isRestarting:', isRestarting);
+      if (isListening && !isRestarting) {
+        isRestarting = true;
         setTimeout(() => {
-          if (isListening && !recognitionRunning) {
-            recognitionRunning = true;
-            try { rec.start(); } catch (e) { console.error('[SpinePay] Restart failed:', e); }
+          if (isListening) {
+            // Always use a FRESH instance — never restart the same object
+            activeRecognition = createRecognition();
+            try {
+              activeRecognition.start();
+            } catch (e) {
+              console.error('[SpinePay] Restart failed:', e);
+              isRestarting = false;
+            }
           }
-        }, 300);
+        }, 500);
       }
     };
 
-    // Guard: only call start() once
-    if (recognitionRunning) {
-      console.log('[SpinePay] Already running, skipping start');
+    return rec;
+  }
+
+  function beginSpeech() {
+    if (!( window.SpeechRecognition || window.webkitSpeechRecognition)) {
+      toast('Speech recognition not supported in this browser.', 'error');
       return false;
     }
-    recognitionRunning = true;
-    isListening        = true;
+    if (isListening) return false; // already running
+
+    console.log('[SpinePay] SOAP field targets:', {
+      soapSubjective: !!document.getElementById('soapSubjective'),
+      soapObjective:  !!document.getElementById('soapObjective'),
+      soapAssessment: !!document.getElementById('soapAssessment'),
+      soapPlan:       !!document.getElementById('soapPlan')
+    });
+
+    isListening  = true;
+    isRestarting = false;
+    activeRecognition = createRecognition();
 
     try {
-      rec.start();
+      activeRecognition.start();
     } catch (err) {
-      recognitionRunning = false;
-      isListening        = false;
+      isListening = false;
       toast('Could not start microphone: ' + err.message, 'error');
       return false;
     }
 
-    activeRecognition = rec;
-    isRecording       = true;
-    // NOTE: startLevelMeter() intentionally NOT called here — a competing getUserMedia
-    // on the same device causes Chromium to abort the speech recognition stream.
+    isRecording = true;
     return true;
   }
 
@@ -1417,12 +1405,11 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
 
   // Called when modal closes or save is triggered
   function stopDictation() {
-    isListening        = false;
-    recognitionRunning = false;
-    isRecording        = false;
+    isListening  = false;
+    isRestarting = false;
+    isRecording  = false;
     if (activeRecognition) {
-      console.log('[SpinePay] recognition.stop() called from stopDictation', new Error().stack);
-      try { activeRecognition.stop(); } catch (_) {}
+      try { activeRecognition.abort(); } catch (_) {}
       activeRecognition = null;
     }
     stopLevelMeter();
