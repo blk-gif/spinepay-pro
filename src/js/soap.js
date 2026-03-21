@@ -10,9 +10,10 @@ window.SoapNotes = (() => {
   let editingNoteId = null;
   let viewMode      = 'list';
   let currentNote   = null;
-  let isRecording    = false;
-  let recordingField = null;   // active SOAP field id
-  let globalDictMode = false;
+  let isRecording       = false;
+  let recordingField    = null;   // active SOAP field id
+  let globalDictMode    = false;
+  let currentActiveField = 'soapSubjective'; // persists across global-mode recordings
   let analyserCtx    = null;
   let analyserNode   = null;
   let levelStream    = null;
@@ -1173,8 +1174,13 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
 
   async function _startCapture(fieldId, global) {
     const deviceId = getSelectedMicId();
-    const constraint = deviceId ? { deviceId: { exact: deviceId } } : true;
-    recordingStream = await navigator.mediaDevices.getUserMedia({ audio: constraint, video: false });
+    const audioConstraints = {
+      noiseSuppression:  true,   // filter out background office noise
+      echoCancellation:  true,   // remove room echo / speaker bleed
+      autoGainControl:   true,   // normalize speaker volume
+      ...(deviceId ? { deviceId: { exact: deviceId } } : {})
+    };
+    recordingStream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints, video: false });
 
     // Level meter
     levelStream  = recordingStream;
@@ -1218,8 +1224,9 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
 
   async function startGlobalDictation() {
     if (isRecording) { stopDictation(); return; }
-    recordingField = 'soapSubjective';
-    globalDictMode = true;
+    recordingField     = 'soapSubjective';
+    currentActiveField = 'soapSubjective';
+    globalDictMode     = true;
     isRecording    = true;
     try {
       await _startCapture('soapSubjective', true);
@@ -1254,7 +1261,6 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
     stopLevelMeter();
 
     if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-      const capturedChunks = audioChunks.slice();
       const capturedField  = recordingField;
       const capturedGlobal = globalDictMode;
 
@@ -1263,11 +1269,14 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
         mediaRecorder = null;
         resetDictateUI();
 
-        if (capturedChunks.length === 0) return;
+        const chunks = audioChunks.slice();
+        audioChunks = [];
+
+        if (chunks.length === 0) { toast('No audio captured — try again', 'error'); return; }
         showDictateStatus('\u23F3 Transcribing...');
 
         try {
-          const blob        = new Blob(capturedChunks, { type: 'audio/webm' });
+          const blob        = new Blob(chunks, { type: 'audio/webm' });
           const arrayBuffer = await blob.arrayBuffer();
           const audioCtx    = new AudioContext({ sampleRate: 16000 });
           const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
@@ -1280,28 +1289,41 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
           const statusEl = document.getElementById('dictateStatus');
           if (statusEl) statusEl.style.display = 'none';
 
-          if (!result.success || !result.text || !result.text.trim()) {
-            if (!result.success) toast('Transcription failed: ' + (result.error || 'unknown'), 'error');
-            return;
-          }
+          if (!result.success) { toast('Transcription failed: ' + (result.error || 'unknown'), 'error'); return; }
+          if (!result.text || !result.text.trim()) { toast('Nothing heard — speak clearly and try again', 'info'); return; }
 
           const text  = result.text.trim();
           const lower = text.toLowerCase();
 
           if (capturedGlobal) {
-            if      (lower.includes('subjective')) recordingField = 'soapSubjective';
-            else if (lower.includes('objective'))  recordingField = 'soapObjective';
-            else if (lower.includes('assessment')) recordingField = 'soapAssessment';
-            else if (lower.includes('plan'))       recordingField = 'soapPlan';
-            else {
-              const field = document.getElementById(recordingField);
-              if (field) { field.value += text + ' '; field.dispatchEvent(new Event('input', { bubbles: true })); }
+            const sectionMap = {
+              'subjective': 'soapSubjective',
+              'objective':  'soapObjective',
+              'assessment': 'soapAssessment',
+              'plan':       'soapPlan'
+            };
+            let switched = false;
+            for (const [keyword, fieldId] of Object.entries(sectionMap)) {
+              if (lower.includes(keyword)) {
+                currentActiveField = fieldId;
+                switched = true;
+                console.log('[Voice] Switched to section:', fieldId);
+                break;
+              }
+            }
+            if (!switched) {
+              const field = document.getElementById(currentActiveField);
+              if (field && text.trim()) {
+                field.value += text + ' ';
+                field.dispatchEvent(new Event('input', { bubbles: true }));
+              }
+              console.log('[Whisper] Written:', text, '\u2192', currentActiveField);
             }
           } else {
             const field = document.getElementById(capturedField);
             if (field) { field.value += text + ' '; field.dispatchEvent(new Event('input', { bubbles: true })); }
+            console.log('[Whisper] Written:', text, '\u2192', capturedField);
           }
-          console.log('[Whisper] Written:', text, '\u2192', capturedField);
         } catch (err) {
           toast('Transcription failed: ' + err.message, 'error');
           const statusEl = document.getElementById('dictateStatus');
@@ -1309,7 +1331,6 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
         }
       };
 
-      audioChunks = [];
       mediaRecorder.stop();
     } else {
       if (recordingStream) { recordingStream.getTracks().forEach(t => t.stop()); recordingStream = null; }
@@ -1455,7 +1476,12 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
     btn.textContent = 'Recording 3s…';
 
     const deviceId = getSelectedMicId();
-    const audioConstraint = deviceId ? { deviceId: { exact: deviceId } } : true;
+    const audioConstraint = {
+      noiseSuppression: true,
+      echoCancellation: true,
+      autoGainControl:  true,
+      ...(deviceId ? { deviceId: { exact: deviceId } } : {})
+    };
     let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraint, video: false });
