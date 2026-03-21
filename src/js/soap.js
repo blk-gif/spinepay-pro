@@ -1418,6 +1418,17 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
       }, 10000);
     });
 
+    // Forward main-process logs into pipeline-log div
+    window.api.mainLog.onLog(({ type, msg }) => {
+      const log = document.getElementById('pipeline-log');
+      if (log) {
+        const color = type === 'error' ? 'salmon' : 'cyan';
+        log.innerHTML += `<div style="color:${color}">[MAIN] ${msg}</div>`;
+        log.scrollTop = log.scrollHeight;
+      }
+      console.log('[MAIN\u2192RENDERER]', msg);
+    });
+
     // HCFA buttons
     document.getElementById('hcfaPrintBtn')?.addEventListener('click',   printHCFA);
     document.getElementById('hcfaSavePdfBtn')?.addEventListener('click', savePDF);

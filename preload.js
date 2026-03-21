@@ -155,5 +155,8 @@ contextBridge.exposeInMainWorld('api', {
   },
   print: {
     showDialog: () => ipcRenderer.invoke('print:show-dialog')
+  },
+  mainLog: {
+    onLog: (cb) => ipcRenderer.on('main-log', (_e, data) => cb(data))
   }
 });
