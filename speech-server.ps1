@@ -1,32 +1,31 @@
 Add-Type -AssemblyName System.Speech
-$recognizer = New-Object System.Speech.Recognition.SpeechRecognitionEngine
-$recognizer.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar))
-$recognizer.SetInputToDefaultAudioDevice()
+[Console]::Error.WriteLine("PS: Starting...")
 
-[Console]::Error.WriteLine("SAPI: Recognizer ready, listening...")
+$rec = New-Object System.Speech.Recognition.SpeechRecognitionEngine
+$rec.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar))
+$rec.SetInputToDefaultAudioDevice()
 
-$recognizer.add_SpeechRecognized({
-    param($sender, $e)
-    $text = $e.Result.Text
-    $confidence = $e.Result.Confidence
-    [Console]::Error.WriteLine("SAPI: Heard '$text' confidence=$confidence")
-    [Console]::Out.WriteLine("RESULT:$text")
+[Console]::Error.WriteLine("PS: Grammar loaded, device set")
+
+$rec.add_SpeechRecognized({
+    param($s, $e)
+    $t = $e.Result.Text
+    [Console]::Error.WriteLine("PS: Recognized: $t")
+    [Console]::Out.WriteLine("RESULT:$t")
     [Console]::Out.Flush()
 })
 
-$recognizer.add_SpeechRecognitionRejected({
-    param($sender, $e)
-    [Console]::Error.WriteLine("SAPI: Speech rejected (low confidence)")
-})
+[Console]::Error.WriteLine("PS: Starting async recognition...")
+$rec.RecognizeAsync([System.Speech.Recognition.RecognizeMode]::Multiple)
+[Console]::Error.WriteLine("PS: Listening. Send STOP to quit.")
 
-$recognizer.RecognizeAsync([System.Speech.Recognition.RecognizeMode]::Multiple)
-
-# Keep running until stdin closes or STOP received
 while ($true) {
-    $line = [Console]::In.ReadLine()
-    if ($line -eq $null -or $line -eq "STOP") {
-        $recognizer.RecognizeAsyncStop()
-        break
+    if ([Console]::In.Peek() -ne -1) {
+        $line = [Console]::In.ReadLine()
+        if ($line -eq "STOP") { break }
     }
-    Start-Sleep -Milliseconds 100
+    Start-Sleep -Milliseconds 200
 }
+
+$rec.RecognizeAsyncStop()
+[Console]::Error.WriteLine("PS: Stopped.")

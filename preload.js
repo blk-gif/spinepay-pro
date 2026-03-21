@@ -136,6 +136,12 @@ contextBridge.exposeInMainWorld('api', {
     onResult: (cb) => ipcRenderer.on('sapi:result', (_e, text) => cb(text)),
     removeResultListeners: () => ipcRenderer.removeAllListeners('sapi:result')
   },
+  pipelineTest: {
+    start:           () => ipcRenderer.invoke('start-dictation'),
+    stop:            () => ipcRenderer.invoke('stop-dictation'),
+    onResult:        (cb) => ipcRenderer.on('dictation-result', (_e, data) => cb(data)),
+    removeListeners: () => ipcRenderer.removeAllListeners('dictation-result')
+  },
   hcfa: {
     getByPatient: (patientId) => ipcRenderer.invoke('hcfa:get-by-patient', patientId),
     getBySoap: (soapNoteId) => ipcRenderer.invoke('hcfa:get-by-soap', soapNoteId),

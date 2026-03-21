@@ -143,8 +143,14 @@ window.SoapNotes = (() => {
                 <div id="soapLevelBar" style="height:100%;width:0%;border-radius:3px;transition:width 60ms linear;background:#ef4444;"></div>
               </div>
             </div>
+            <button type="button" id="pipelineTestBtn"
+              style="background:purple;color:white;border:none;border-radius:6px;padding:4px 10px;font-size:11px;cursor:pointer;white-space:nowrap;"
+              title="Run pipeline diagnostics to trace SAPI → IPC → renderer">
+              🔬 Pipeline Test
+            </button>
             <button class="modal-close" id="soapModalClose">&times;</button>
           </div>
+          <div id="pipeline-log" style="display:none;font-family:monospace;font-size:11px;max-height:150px;overflow-y:auto;background:#111;padding:8px;border-bottom:1px solid #333;"></div>
           <div class="modal-body">
             <form id="soapForm">
               <div class="form-grid form-grid-2">
@@ -1381,6 +1387,35 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
     document.getElementById('dictateAllBtn')?.addEventListener('click', () => {
       if (isRecording) stopDictation();
       else startGlobalDictation();
+    });
+
+    // Pipeline test button
+    document.getElementById('pipelineTestBtn')?.addEventListener('click', async () => {
+      const log = document.getElementById('pipeline-log');
+      log.style.display = 'block';
+      log.innerHTML = '';
+      const addLog = (msg, color = 'white') => {
+        log.innerHTML += `<div style="color:${color}">${new Date().toISOString().substr(11,8)} — ${msg}</div>`;
+        log.scrollTop = log.scrollHeight;
+        console.log('[PipelineTest]', msg);
+      };
+
+      addLog('Step 1: Invoking start-dictation IPC...', 'yellow');
+      await window.api.pipelineTest.start();
+      addLog('Step 1 DONE — IPC call returned', 'lime');
+
+      addLog('Step 2: Registering dictation-result listener...', 'yellow');
+      window.api.pipelineTest.removeListeners();
+      window.api.pipelineTest.onResult((data) => {
+        addLog('Step 3: GOT RESULT → ' + JSON.stringify(data), 'lime');
+      });
+      addLog('Step 2 DONE — listener registered, speak now...', 'lime');
+
+      setTimeout(async () => {
+        addLog('Step 4: Stopping after 10s timeout...', 'yellow');
+        await window.api.pipelineTest.stop();
+        addLog('Step 4 DONE — stopped', 'lime');
+      }, 10000);
     });
 
     // HCFA buttons

@@ -1212,6 +1212,72 @@ ipcMain.handle('hcfa:delete', (event, id) => {
 // ── WINDOWS SAPI SPEECH RECOGNITION ──────────────────────────────────────────
 let speechProcess = null;
 
+// Pipeline test handlers — maximum logging, sends 'dictation-result' events
+ipcMain.handle('start-dictation', (event) => {
+  console.log('[Main] start-dictation called');
+  console.log('[Main] mainWindow exists:', !!mainWindow);
+  console.log('[Main] speechProcess exists:', !!speechProcess);
+
+  if (speechProcess) {
+    console.log('[Main] Already running — killing old process first');
+    speechProcess.kill();
+    speechProcess = null;
+  }
+
+  const scriptPath = path.join(__dirname, 'speech-server.ps1');
+  console.log('[Main] Script path:', scriptPath);
+  console.log('[Main] Script exists:', fs.existsSync(scriptPath));
+
+  speechProcess = spawn('powershell.exe', [
+    '-ExecutionPolicy', 'Bypass',
+    '-NonInteractive',
+    '-File', scriptPath
+  ], { stdio: ['pipe', 'pipe', 'pipe'] });
+
+  console.log('[Main] PowerShell PID:', speechProcess.pid);
+
+  let buffer = '';
+  speechProcess.stdout.on('data', (data) => {
+    console.log('[Main] RAW stdout:', JSON.stringify(data.toString()));
+    buffer += data.toString();
+    const lines = buffer.split('\n');
+    buffer = lines.pop();
+    lines.forEach(line => {
+      line = line.trim();
+      if (line.startsWith('RESULT:')) {
+        const text = line.replace('RESULT:', '').trim();
+        console.log('[Main] Sending to window:', text);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('dictation-result', { text, final: true });
+        }
+      }
+    });
+  });
+
+  speechProcess.stderr.on('data', (data) => {
+    console.log('[Main] PS stderr:', data.toString().trim());
+  });
+
+  speechProcess.on('error', (err) => {
+    console.error('[Main] Spawn error:', err);
+  });
+
+  speechProcess.on('close', (code) => {
+    console.log('[Main] PS closed with code:', code);
+    speechProcess = null;
+  });
+});
+
+ipcMain.handle('stop-dictation', () => {
+  console.log('[Main] stop-dictation called');
+  if (speechProcess) {
+    try { speechProcess.stdin.write('STOP\n'); } catch (_) {}
+    setTimeout(() => {
+      if (speechProcess) { speechProcess.kill(); speechProcess = null; }
+    }, 500);
+  }
+});
+
 ipcMain.handle('sapi:start', (event) => {
   if (speechProcess) { console.log('[SAPI] Already running'); return; }
   const scriptPath = path.join(__dirname, 'speech-server.ps1');
