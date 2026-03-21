@@ -53,6 +53,7 @@ window.SoapNotes = (() => {
           </button>
         </div>
         <textarea class="form-control" id="${id}" rows="4" placeholder="${placeholder}"></textarea>
+        <div id="dictPreview-${id}" style="display:none;font-style:italic;font-size:11px;color:rgba(212,175,55,0.6);margin-top:4px;min-height:16px;padding:0 2px;"></div>
       </div>`;
   }
 
@@ -1168,14 +1169,7 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
     if (isRecording) { stopDictation(); return; }
     recordingField = fieldId;
     globalDictMode = false;
-    const ok = beginSpeech((text) => {
-      const ta = document.getElementById(recordingField);
-      if (ta && text) {
-        const existing = ta.value.trimEnd();
-        ta.value = existing ? existing + ' ' + text : text;
-        ta.scrollTop = ta.scrollHeight;
-      }
-    });
+    const ok = beginSpeech();
     if (!ok) return;
     updateMicUI(fieldId, true);
     showDictateStatus('REC \u25cf ' + fieldId.replace('soap', '').toUpperCase() + ' \u2014 click mic to stop');
@@ -1185,9 +1179,7 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
     if (isRecording) { stopDictation(); return; }
     recordingField = null;
     globalDictMode = true;
-    const ok = beginSpeech((text) => {
-      if (text) distributeTranscript(text);
-    });
+    const ok = beginSpeech();
     if (!ok) return;
     const dictBtn = document.getElementById('dictateAllBtn');
     if (dictBtn) {
@@ -1200,34 +1192,93 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
     showDictateStatus('REC \u25cf ALL FIELDS \u2014 say "Subjective / Objective / Assessment / Plan" to separate, click to stop');
   }
 
-  function beginSpeech(onFinalResult) {
+  const SECTION_KEYWORDS = {
+    subjective: 'soapSubjective',
+    objective:  'soapObjective',
+    assessment: 'soapAssessment',
+    plan:       'soapPlan'
+  };
+
+  function beginSpeech() {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
       toast('Speech recognition not supported in this browser.', 'error');
       return false;
     }
 
+    // Log field IDs so DevTools console confirms they exist
+    console.log('[SpinePay] SOAP field targets:', {
+      soapSubjective: !!document.getElementById('soapSubjective'),
+      soapObjective:  !!document.getElementById('soapObjective'),
+      soapAssessment: !!document.getElementById('soapAssessment'),
+      soapPlan:       !!document.getElementById('soapPlan')
+    });
+
     const rec = new SpeechRecognition();
-    rec.continuous      = true;
-    rec.interimResults  = true;
-    rec.lang            = 'en-US';
+    rec.continuous     = true;
+    rec.interimResults = true;
+    rec.lang           = 'en-US';
 
     rec.onresult = (event) => {
-      let finalText = '';
+      let interimText = '';
+      let finalText   = '';
+
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        if (event.results[i].isFinal) finalText += event.results[i][0].transcript;
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalText += transcript;
+        } else {
+          interimText += transcript;
+        }
       }
-      if (finalText.trim()) onFinalResult(finalText.trim());
+
+      const combined = (finalText || interimText).trim();
+      if (!combined) return;
+
+      if (globalDictMode) {
+        // Check for section-switch keywords in the transcript
+        const lower = combined.toLowerCase();
+        let switched = false;
+        for (const [kw, fieldId] of Object.entries(SECTION_KEYWORDS)) {
+          if (lower.includes(kw)) {
+            recordingField = fieldId;
+            clearInterimPreviews();
+            switched = true;
+            break;
+          }
+        }
+        if (switched) return;
+      }
+
+      const ta = document.getElementById(recordingField);
+      if (!ta) return;
+
+      if (finalText.trim()) {
+        // Commit final text to the textarea
+        const existing = ta.value.trimEnd();
+        ta.value = existing ? existing + ' ' + finalText.trim() : finalText.trim();
+        ta.scrollTop = ta.scrollHeight;
+        ta.dispatchEvent(new Event('input', { bubbles: true }));
+        // Clear interim preview
+        const preview = document.getElementById('dictPreview-' + recordingField);
+        if (preview) { preview.textContent = ''; preview.style.display = 'none'; }
+      } else if (interimText.trim()) {
+        // Show live interim preview below the textarea
+        const preview = document.getElementById('dictPreview-' + recordingField);
+        if (preview) {
+          preview.textContent = interimText.trim() + '\u2026';
+          preview.style.display = 'block';
+        }
+      }
     };
 
     rec.onerror = (event) => {
       if (event.error === 'no-speech') return; // ignore silently
       if (event.error === 'network') {
-        // Retry once after 1 second
         setTimeout(() => { if (isRecording) { try { rec.start(); } catch (_) {} } }, 1000);
         return;
       }
-      console.error('Speech error:', event.error);
+      console.error('[SpinePay] Speech error:', event.error);
     };
 
     rec.onend = () => {
@@ -1247,6 +1298,13 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
     isRecording       = true;
     startLevelMeter();
     return true;
+  }
+
+  function clearInterimPreviews() {
+    document.querySelectorAll('[id^="dictPreview-"]').forEach(el => {
+      el.textContent = '';
+      el.style.display = 'none';
+    });
   }
 
   function getSelectedMicId() {
@@ -1334,6 +1392,7 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
       activeRecognition = null;
     }
     stopLevelMeter();
+    clearInterimPreviews();
     resetDictateUI();
   }
 
