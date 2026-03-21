@@ -10,15 +10,14 @@ window.SoapNotes = (() => {
   let editingNoteId = null;
   let viewMode      = 'list';
   let currentNote   = null;
-  let mediaRecorder  = null;
-  let audioChunks    = [];
-  let isRecording    = false;
-  let recordingField = null;   // fieldId for single-field mode, null = global
-  let globalDictMode = false;
-  let analyserCtx    = null;
-  let analyserNode   = null;
-  let levelStream    = null;
-  let levelTimer     = null;
+  let activeRecognition = null;
+  let isRecording       = false;
+  let recordingField    = null;   // fieldId for single-field mode, null = global
+  let globalDictMode    = false;
+  let analyserCtx       = null;
+  let analyserNode      = null;
+  let levelStream       = null;
+  let levelTimer        = null;
   let currentHcfaData = null;
   let currentHcfaId   = null;
 
@@ -1163,158 +1162,91 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
     win.document.close();
   }
 
-  // ── Voice Dictation (offline — MediaRecorder → Whisper in main process) ────────
-  // webkitSpeechRecognition always requires Google's servers and fails with a
-  // network error in Electron. Instead we record with MediaRecorder, resample
-  // to 16 kHz mono, and send to @xenova/transformers Whisper running in main.
+  // ── Voice Dictation (webkitSpeechRecognition — continuous) ────────────────────
 
-  async function startDictation(fieldId) {
+  function startDictation(fieldId) {
     if (isRecording) { stopDictation(); return; }
     recordingField = fieldId;
     globalDictMode = false;
-    const ok = await beginRecording();
+    const ok = beginSpeech((text) => {
+      const ta = document.getElementById(recordingField);
+      if (ta && text) {
+        const existing = ta.value.trimEnd();
+        ta.value = existing ? existing + ' ' + text : text;
+        ta.scrollTop = ta.scrollHeight;
+      }
+    });
     if (!ok) return;
     updateMicUI(fieldId, true);
     showDictateStatus('REC \u25cf ' + fieldId.replace('soap', '').toUpperCase() + ' \u2014 click mic to stop');
   }
 
-  async function startGlobalDictation() {
+  function startGlobalDictation() {
     if (isRecording) { stopDictation(); return; }
     recordingField = null;
     globalDictMode = true;
-    const ok = await beginRecording();
+    const ok = beginSpeech((text) => {
+      if (text) distributeTranscript(text);
+    });
     if (!ok) return;
     const dictBtn = document.getElementById('dictateAllBtn');
     if (dictBtn) {
       dictBtn.style.background  = 'rgba(220,38,38,0.15)';
       dictBtn.style.borderColor = '#dc2626';
       dictBtn.style.color       = '#ef4444';
-      dictBtn.innerHTML = '<i class="fa-solid fa-stop"></i> Stop & Transcribe';
+      dictBtn.innerHTML = '<i class="fa-solid fa-stop"></i> Stop Dictation';
     }
     updateMicUI('soapSubjective', true);
-    showDictateStatus('REC \u25cf ALL FIELDS \u2014 say "Subjective / Objective / Assessment / Plan" to separate, click Stop when done');
+    showDictateStatus('REC \u25cf ALL FIELDS \u2014 say "Subjective / Objective / Assessment / Plan" to separate, click to stop');
   }
 
-  async function beginRecording() {
-    const deviceId = getSelectedMicId();
-    const audioConstraint = deviceId ? { deviceId: { exact: deviceId } } : true;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraint, video: false });
-      isRecording = true;
-      audioChunks = [];
-
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : (MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '');
-
-      mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-      mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) audioChunks.push(e.data); };
-      mediaRecorder.onstop = () => { stream.getTracks().forEach(t => t.stop()); processRecording(); };
-      mediaRecorder.start(200);
-
-      startLevelMeter();
-
-      // Safety limit: 5 minutes
-      setTimeout(() => { if (isRecording) stopDictation(); }, 300000);
-      return true;
-    } catch (err) {
-      isRecording = false;
-      const msgs = {
-        NotAllowedError:  'Microphone access denied. Check system permissions.',
-        NotFoundError:    'No microphone found. Please connect a microphone.',
-        NotReadableError: 'Microphone is in use by another application.'
-      };
-      toast(msgs[err.name] || 'Microphone error: ' + err.message, 'error');
+  function beginSpeech(onFinalResult) {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      toast('Speech recognition not supported in this browser.', 'error');
       return false;
     }
-  }
 
-  async function processRecording() {
-    stopLevelMeter();
+    const rec = new SpeechRecognition();
+    rec.continuous      = true;
+    rec.interimResults  = true;
+    rec.lang            = 'en-US';
+
+    rec.onresult = (event) => {
+      let finalText = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        if (event.results[i].isFinal) finalText += event.results[i][0].transcript;
+      }
+      if (finalText.trim()) onFinalResult(finalText.trim());
+    };
+
+    rec.onerror = (event) => {
+      if (event.error === 'no-speech') return; // ignore silently
+      if (event.error === 'network') {
+        // Retry once after 1 second
+        setTimeout(() => { if (isRecording) { try { rec.start(); } catch (_) {} } }, 1000);
+        return;
+      }
+      console.error('Speech error:', event.error);
+    };
+
+    rec.onend = () => {
+      if (isRecording) {
+        setTimeout(() => { try { rec.start(); } catch (_) {} }, 300);
+      }
+    };
 
     try {
-      const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
-
-      if (blob.size < 500) {
-        toast('No audio captured. Make sure your microphone is working.', 'warning');
-        resetDictateUI();
-        return;
-      }
-
-      // Check if Whisper model needs to download first
-      const status = await window.api.speech.status();
-      if (!status.loaded) {
-        showDictateStatus('Downloading speech model\u2026 0%');
-        window.api.speech.onProgress((p) => {
-          if (p && p.status === 'progress' && p.total) {
-            const pct = Math.round((p.loaded / p.total) * 100);
-            showDictateStatus('Downloading speech model\u2026 ' + pct + '%');
-          }
-        });
-      } else {
-        showDictateStatus('TRANSCRIBING \u2014 please wait\u2026');
-      }
-
-      // Decode and resample to 16 kHz mono (Whisper requirement)
-      const arrayBuffer = await blob.arrayBuffer();
-      const srcCtx      = new AudioContext();
-      let srcBuffer;
-      try {
-        srcBuffer = await srcCtx.decodeAudioData(arrayBuffer);
-      } catch (_) {
-        toast('Could not decode audio. Please try again.', 'error');
-        resetDictateUI();
-        await srcCtx.close();
-        return;
-      }
-      await srcCtx.close();
-
-      const TARGET_RATE = 16000;
-      const offCtx = new OfflineAudioContext(1, Math.ceil(srcBuffer.duration * TARGET_RATE), TARGET_RATE);
-      const src    = offCtx.createBufferSource();
-      src.buffer   = srcBuffer;
-      src.connect(offCtx.destination);
-      src.start(0);
-      const resampled = await offCtx.startRendering();
-      const float32   = resampled.getChannelData(0);
-
-      const result = await window.api.speech.transcribe(float32);
-
-      if (!result.success) {
-        const errMsg = result.error || 'Unknown error';
-        if (errMsg.includes('loading') || errMsg.includes('wait')) {
-          toast('Speech model is loading (first use). Please try again in a few seconds.', 'info');
-        } else {
-          toast('Transcription failed: ' + errMsg, 'error');
-        }
-        resetDictateUI();
-        return;
-      }
-
-      const text = (result.text || '').trim();
-      if (!text) {
-        toast('No speech detected. Try speaking more clearly or closer to the mic.', 'warning');
-        resetDictateUI();
-        return;
-      }
-
-      if (globalDictMode) {
-        distributeTranscript(text);
-      } else {
-        const ta = document.getElementById(recordingField);
-        if (ta) {
-          const existing = ta.value.trimEnd();
-          ta.value = existing ? existing + ' ' + text : text;
-          ta.scrollTop = ta.scrollHeight;
-        }
-      }
-
-      toast('Transcription complete', 'success');
+      rec.start();
     } catch (err) {
-      toast('Transcription error: ' + err.message, 'error');
-    } finally {
-      resetDictateUI();
+      toast('Could not start microphone: ' + err.message, 'error');
+      return false;
     }
+
+    activeRecognition = rec;
+    isRecording       = true;
+    startLevelMeter();
+    return true;
   }
 
   function getSelectedMicId() {
@@ -1397,12 +1329,12 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
   // Called when modal closes or save is triggered
   function stopDictation() {
     isRecording = false;
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-      mediaRecorder.stop(); // triggers onstop → processRecording
-    } else {
-      stopLevelMeter();
-      resetDictateUI();
+    if (activeRecognition) {
+      try { activeRecognition.stop(); } catch (_) {}
+      activeRecognition = null;
     }
+    stopLevelMeter();
+    resetDictateUI();
   }
 
   function resetDictateUI() {

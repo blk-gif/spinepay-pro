@@ -4,12 +4,12 @@ const crypto = require('crypto');
 const fs = require('fs');
 const { runMigrations } = require('./db-migrations');
 
-// Ensure Chromium uses English for speech recognition
 app.commandLine.appendSwitch('lang', 'en-US');
-// Do NOT set use-fake-ui-for-media-stream — it routes the mic to a silent fake device
-// Ensure WebRTC uses the real Windows audio device
-app.commandLine.appendSwitch('enable-webrtc-hide-local-ips-with-mdns', 'false');
-app.commandLine.appendSwitch('use-fake-device-for-media-stream', 'false');
+app.commandLine.appendSwitch('allow-insecure-localhost');
+app.commandLine.appendSwitch('disable-web-security');
+app.commandLine.appendSwitch('ignore-certificate-errors');
+app.commandLine.appendSwitch('enable-speech-dispatcher');
+app.commandLine.appendSwitch('enable-features', 'WebSpeechAPI');
 
 let mainWindow;
 let db;
@@ -507,13 +507,11 @@ function insertSampleData() {
 function createWindow() {
   // Grant microphone (and camera) permissions automatically for speech recognition
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
-    const allowed = ['media', 'microphone', 'audioCapture', 'camera'];
-    callback(allowed.includes(permission));
+    callback(true); // allow all permissions for this local app
   });
 
   session.defaultSession.setPermissionCheckHandler((webContents, permission) => {
-    const allowed = ['media', 'microphone', 'audioCapture', 'camera'];
-    return allowed.includes(permission);
+    return true; // allow all permission checks
   });
 
   mainWindow = new BrowserWindow({
@@ -527,7 +525,10 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: false,
+      webSecurity: false,
+      allowRunningInsecureContent: true,
+      experimentalFeatures: true
     },
     icon: path.join(__dirname, 'assets', 'icon.png'),
     show: false
