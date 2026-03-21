@@ -17,8 +17,6 @@ window.SoapNotes = (() => {
   let analyserNode   = null;
   let levelStream    = null;
   let levelTimer     = null;
-  let isListening    = false;
-  let recognition    = null;
   let currentHcfaData = null;
   let currentHcfaId   = null;
 
@@ -1166,101 +1164,41 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
 
   // ── Voice Dictation (Web Speech API — Windows Speech Recognition) ─────────────
 
-  function buildRecognition() {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) return null;
-    const rec = new SR();
-    rec.continuous      = true;
-    rec.interimResults  = true;
-    rec.lang            = 'en-US';
-    rec.maxAlternatives = 1;
-
-    rec.onresult = (event) => {
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript;
-        const isFinal    = event.results[i].isFinal;
-
-        if (isFinal) {
-          const lower = transcript.toLowerCase().trim();
-          // Section-switch keywords
-          if (lower.includes('subjective')) { recordingField = 'soapSubjective'; return; }
-          if (lower.includes('objective'))  { recordingField = 'soapObjective';  return; }
-          if (lower.includes('assessment')) { recordingField = 'soapAssessment'; return; }
-          if (lower.includes('plan'))       { recordingField = 'soapPlan';       return; }
-
-          const field = document.getElementById(recordingField);
-          if (!field) return;
-          field.value += transcript + ' ';
-          field.dispatchEvent(new Event('input', { bubbles: true }));
-          console.log('[SpinePay] Final transcript:', transcript, '→', recordingField);
-
-          // Clear interim preview
-          const preview = document.getElementById('dictPreview-' + recordingField);
-          if (preview) { preview.textContent = ''; preview.style.display = 'none'; }
-        } else {
-          // Live interim preview below active field
-          const preview = document.getElementById('dictPreview-' + recordingField);
-          if (preview) { preview.textContent = transcript + '\u2026'; preview.style.display = 'block'; }
-        }
-      }
-    };
-
-    rec.onerror = (e) => {
-      console.log('[SpinePay] Speech error:', e.error);
-      if (e.error === 'no-speech') return;
-      if (e.error === 'aborted')   return;
-      if (e.error === 'network') {
-        toast('Enable Windows Speech Recognition: Settings \u2192 Time & Language \u2192 Speech \u2192 Get started', 'warning');
-        return;
-      }
-      toast('Speech error: ' + e.error, 'error');
-    };
-
-    rec.onend = () => {
-      console.log('[SpinePay] recognition.onend — isListening:', isListening);
-      if (isListening) {
-        setTimeout(() => {
-          if (isListening) {
-            // Always fresh instance to avoid "already started" error
-            recognition = buildRecognition();
-            if (recognition) recognition.start();
-          }
-        }, 250);
-      }
-    };
-
-    return rec;
+  function handleDictationResult(text) {
+    const lower = text.toLowerCase().trim();
+    if (lower === 'subjective') { recordingField = 'soapSubjective'; return; }
+    if (lower === 'objective')  { recordingField = 'soapObjective';  return; }
+    if (lower === 'assessment') { recordingField = 'soapAssessment'; return; }
+    if (lower === 'plan')       { recordingField = 'soapPlan';       return; }
+    const field = document.getElementById(recordingField);
+    if (field) {
+      field.value += text + ' ';
+      field.dispatchEvent(new Event('input', { bubbles: true }));
+      console.log('[SpinePay] Written to', recordingField, ':', text);
+    }
   }
 
-  function startDictation(fieldId) {
+  async function startDictation(fieldId) {
     if (isRecording) { stopDictation(); return; }
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { toast('Speech recognition not available in this browser.', 'error'); return; }
-
     recordingField = fieldId;
     globalDictMode = false;
-    isListening    = true;
     isRecording    = true;
-    recognition    = buildRecognition();
-    recognition.start();
-
+    window.api.sapi.removeResultListeners();
+    window.api.sapi.onResult((text) => handleDictationResult(text));
+    await window.api.sapi.start();
     updateMicUI(fieldId, true);
     showDictateStatus('LISTENING \u25cf ' + fieldId.replace('soap', '').toUpperCase() + ' \u2014 click mic to stop');
     startLevelMeter();
   }
 
-  function startGlobalDictation() {
+  async function startGlobalDictation() {
     if (isRecording) { stopDictation(); return; }
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { toast('Speech recognition not available in this browser.', 'error'); return; }
-
     recordingField = 'soapSubjective';
     globalDictMode = true;
-    isListening    = true;
     isRecording    = true;
-    recognition    = buildRecognition();
-    recognition.start();
-
+    window.api.sapi.removeResultListeners();
+    window.api.sapi.onResult((text) => handleDictationResult(text));
+    await window.api.sapi.start();
     const dictBtn = document.getElementById('dictateAllBtn');
     if (dictBtn) {
       dictBtn.style.background  = 'rgba(220,38,38,0.15)';
@@ -1352,12 +1290,9 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
 
   // Called when mic button clicked again, modal closes, or save triggered
   function stopDictation() {
-    isListening = false;
     isRecording = false;
-    if (recognition) {
-      try { recognition.stop(); } catch (_) {}
-      recognition = null;
-    }
+    window.api.sapi.removeResultListeners();
+    window.api.sapi.stop();
     stopLevelMeter();
     resetDictateUI();
   }

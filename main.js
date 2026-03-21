@@ -4,9 +4,11 @@ const crypto = require('crypto');
 const fs = require('fs');
 const { runMigrations } = require('./db-migrations');
 
-app.commandLine.appendSwitch('enable-features', 'WebSpeechAPI,MediaStream');
-app.commandLine.appendSwitch('force-fieldtrials', 'WebSpeech/Enabled/');
-app.commandLine.appendSwitch('lang', 'en-US');
+// Check Windows SAPI availability on launch
+const { spawn } = require('child_process');
+const sapiTest = spawn('powershell.exe', ['-Command', 'Add-Type -AssemblyName System.Speech; Write-Output OK']);
+sapiTest.stdout.on('data', d => console.log('[SAPI] Available:', d.toString().trim()));
+sapiTest.stderr.on('data', d => console.error('[SAPI] Not available:', d.toString()));
 
 let mainWindow;
 let db;
@@ -1207,48 +1209,52 @@ ipcMain.handle('hcfa:delete', (event, id) => {
   return { success: true };
 });
 
-// ── OFFLINE SPEECH RECOGNITION (Whisper via @xenova/transformers) ─────────────
-let whisperPipeline = null;
-let whisperLoading  = false;
+// ── WINDOWS SAPI SPEECH RECOGNITION ──────────────────────────────────────────
+let speechProcess = null;
 
-ipcMain.handle('speech:transcribe', async (event, audioData) => {
-  try {
-    console.log('[Whisper] transcribe called, audioData type:', typeof audioData, Array.isArray(audioData) ? 'array len=' + audioData.length : '');
-    if (!whisperPipeline) {
-      if (whisperLoading) return { success: false, error: 'Model is still loading, please wait a moment and try again.' };
-      whisperLoading = true;
-      console.log('[Whisper] Loading model…');
-      const { pipeline, env } = await import('@xenova/transformers');
-      env.allowLocalModels = false;
-      whisperPipeline = await pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny.en', {
-        chunk_length_s: 30,
-        stride_length_s: 5,
-        return_timestamps: false,
-        progress_callback: (p) => {
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('speech:progress', p);
-          }
+ipcMain.handle('sapi:start', (event) => {
+  if (speechProcess) return;
+  const scriptPath = path.join(__dirname, 'speech-server.ps1');
+  speechProcess = spawn('powershell.exe', [
+    '-ExecutionPolicy', 'Bypass',
+    '-NonInteractive',
+    '-File', scriptPath
+  ], { stdio: ['pipe', 'pipe', 'pipe'] });
+
+  speechProcess.stdout.on('data', (data) => {
+    const lines = data.toString().split('\n');
+    lines.forEach(line => {
+      line = line.trim();
+      if (line.startsWith('RESULT:')) {
+        const text = line.replace('RESULT:', '').trim();
+        console.log('[SAPI] Recognized:', text);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('sapi:result', text);
         }
-      });
-      whisperLoading = false;
-      console.log('[Whisper] Model loaded successfully');
-    }
-    const float32 = audioData instanceof Float32Array ? audioData : new Float32Array(audioData);
-    console.log('[Whisper] Running transcription on', float32.length, 'samples (', (float32.length / 16000).toFixed(1), 's )');
-    const result = await whisperPipeline(float32, { language: 'english', task: 'transcribe' });
-    console.log('[Whisper] Result:', result);
-    return { success: true, text: (result.text || '').trim() };
-  } catch (err) {
-    whisperLoading = false;
-    console.error('[Whisper] Error:', err.message);
-    return { success: false, error: err.message };
-  }
+      }
+    });
+  });
+
+  speechProcess.stderr.on('data', (data) => {
+    console.error('[SAPI] Error:', data.toString());
+  });
+
+  speechProcess.on('close', (code) => {
+    console.log('[SAPI] Process closed:', code);
+    speechProcess = null;
+  });
+
+  console.log('[SAPI] Started');
 });
 
-ipcMain.handle('speech:status', () => ({
-  loaded:  !!whisperPipeline,
-  loading: whisperLoading
-}));
+ipcMain.handle('sapi:stop', () => {
+  if (speechProcess) {
+    try { speechProcess.stdin.write('STOP\n'); } catch (_) {}
+    setTimeout(() => {
+      if (speechProcess) { speechProcess.kill(); speechProcess = null; }
+    }, 500);
+  }
+});
 
 // ── TIME CLOCK ───────────────────────────────────────────────────────────────
 ipcMain.handle('timeclock:clock-in', (event, { userId, notes }) => {

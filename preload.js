@@ -130,10 +130,11 @@ contextBridge.exposeInMainWorld('api', {
     update: (id, data) => ipcRenderer.invoke('timeclock:update', { id, data }),
     getAllUsers: () => ipcRenderer.invoke('timeclock:get-all-users')
   },
-  speech: {
-    transcribe:      (audioData) => ipcRenderer.invoke('speech:transcribe', audioData),
-    status:          ()          => ipcRenderer.invoke('speech:status'),
-    onProgress: (cb) => ipcRenderer.on('speech:progress', (_e, data) => cb(data))
+  sapi: {
+    start:    () => ipcRenderer.invoke('sapi:start'),
+    stop:     () => ipcRenderer.invoke('sapi:stop'),
+    onResult: (cb) => ipcRenderer.on('sapi:result', (_e, text) => cb(text)),
+    removeResultListeners: () => ipcRenderer.removeAllListeners('sapi:result')
   },
   hcfa: {
     getByPatient: (patientId) => ipcRenderer.invoke('hcfa:get-by-patient', patientId),
