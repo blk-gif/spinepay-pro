@@ -19,7 +19,8 @@ function getSetting(key) {
   } catch (_) { return null; }
 }
 function setSetting(key, value) {
-  db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)').run(key, String(value));
+  const safe = (value === undefined || value === null) ? '' : String(value);
+  db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)').run(key, safe);
 }
 
 function hashPassword(password) {
@@ -1244,32 +1245,42 @@ ipcMain.handle('settings:set', (event, { key, value }) => {
 // ── WIZARD ───────────────────────────────────────────────────────────────────
 ipcMain.handle('wizard:complete', (event, payload) => {
   try {
-    const {
-      practiceName, practiceAddress, practiceCity, practiceState, practiceZip,
-      practicePhone, practiceEmail, practiceNPI, practiceEIN,
-      adminFullName, adminUsername, adminPassword,
-      staff, backupFolder
-    } = payload;
+    // Wizard sends: { practice: {...}, admin: {...}, staff: [...], backup_folder: '...' }
+    const { practice = {}, admin = {}, staff, backup_folder } = payload;
+
+    const backupFolder = (typeof backup_folder === 'string' && backup_folder.trim())
+      ? backup_folder.trim()
+      : 'C:\\SpinePayBackups';
+
+    // Create backup folder if it doesn't exist
+    try {
+      if (!fs.existsSync(backupFolder)) fs.mkdirSync(backupFolder, { recursive: true });
+    } catch (e) {
+      console.warn('[Wizard] Could not create backup folder:', e.message);
+    }
 
     // Save practice settings
     const practiceSettings = {
-      PRACTICE_NAME: practiceName || '',
-      PRACTICE_ADDRESS: practiceAddress || '',
-      PRACTICE_CITY: practiceCity || '',
-      PRACTICE_STATE: practiceState || '',
-      PRACTICE_ZIP: practiceZip || '',
-      PRACTICE_PHONE: practicePhone || '',
-      PRACTICE_EMAIL: practiceEmail || '',
-      PRACTICE_NPI: practiceNPI || '',
-      PRACTICE_EIN: practiceEIN || '',
-      BILLING_PROVIDER_NAME: practiceName || '',
-      BACKUP_FOLDER: backupFolder || ''
+      PRACTICE_NAME:         practice.name  || '',
+      PRACTICE_ADDRESS:      practice.addr  || '',
+      PRACTICE_CITY:         practice.city  || '',
+      PRACTICE_STATE:        practice.state || '',
+      PRACTICE_ZIP:          practice.zip   || '',
+      PRACTICE_PHONE:        practice.phone || '',
+      PRACTICE_EMAIL:        practice.email || '',
+      PRACTICE_NPI:          practice.npi   || '',
+      PRACTICE_EIN:          practice.ein   || '',
+      BILLING_PROVIDER_NAME: practice.name  || '',
+      BACKUP_FOLDER:         backupFolder
     };
     for (const [key, value] of Object.entries(practiceSettings)) {
       setSetting(key, value);
     }
 
     // Create/update admin user
+    const adminUsername = admin.username || 'admin';
+    const adminPassword = admin.password || 'admin123';
+    const adminFullName = admin.full_name || 'Administrator';
     const adminHash = hashPassword(adminPassword);
     const adminExists = db.prepare('SELECT id FROM users WHERE username = ?').get(adminUsername);
     if (adminExists) {
@@ -1292,6 +1303,7 @@ ipcMain.handle('wizard:complete', (event, payload) => {
     }
 
     setSetting('setup_complete', 'true');
+    console.log('[Wizard] Setup complete. Backup folder:', backupFolder);
     return { success: true };
   } catch (err) {
     console.error('[Wizard] complete error:', err.message);
