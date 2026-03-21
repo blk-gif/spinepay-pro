@@ -4,9 +4,9 @@ const crypto = require('crypto');
 const fs = require('fs');
 const { runMigrations } = require('./db-migrations');
 
+app.commandLine.appendSwitch('enable-features', 'WebSpeechAPI,MediaStream');
+app.commandLine.appendSwitch('force-fieldtrials', 'WebSpeech/Enabled/');
 app.commandLine.appendSwitch('lang', 'en-US');
-app.commandLine.appendSwitch('enable-speech-dispatcher');
-app.commandLine.appendSwitch('enable-features', 'WebSpeechAPI');
 
 let mainWindow;
 let db;
@@ -504,11 +504,8 @@ function insertSampleData() {
 function createWindow() {
   // Grant microphone (and camera) permissions automatically for speech recognition
   session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
-    callback(true); // allow all permissions for this local app
-  });
-
-  session.defaultSession.setPermissionCheckHandler((webContents, permission) => {
-    return true; // allow all permission checks
+    if (permission === 'media') callback(true);
+    else callback(false);
   });
 
   mainWindow = new BrowserWindow({
@@ -520,7 +517,7 @@ function createWindow() {
     titleBarStyle: 'default',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
-      contextIsolation: true,
+      contextIsolation: true,   // required — contextBridge won't work without this
       nodeIntegration: false,
       sandbox: false
     },
