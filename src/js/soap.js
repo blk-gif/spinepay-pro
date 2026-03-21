@@ -1302,22 +1302,24 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
               'assessment': 'soapAssessment',
               'plan':       'soapPlan'
             };
-            let switched = false;
+            let remainder = text;
             for (const [keyword, fieldId] of Object.entries(sectionMap)) {
-              if (lower.includes(keyword)) {
+              const idx = lower.indexOf(keyword);
+              if (idx !== -1) {
                 currentActiveField = fieldId;
-                switched = true;
+                // Write only what comes after the keyword, stripped of leading punctuation
+                remainder = text.slice(idx + keyword.length).replace(/^[\s,:.;-]+/, '').trim();
                 console.log('[Voice] Switched to section:', fieldId);
                 break;
               }
             }
-            if (!switched) {
+            if (remainder.trim()) {
               const field = document.getElementById(currentActiveField);
-              if (field && text.trim()) {
-                field.value += text + ' ';
+              if (field) {
+                field.value += remainder + ' ';
                 field.dispatchEvent(new Event('input', { bubbles: true }));
               }
-              console.log('[Whisper] Written:', text, '\u2192', currentActiveField);
+              console.log('[Whisper] Written:', remainder, '\u2192', currentActiveField);
             }
           } else {
             const field = document.getElementById(capturedField);
