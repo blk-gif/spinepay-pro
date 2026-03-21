@@ -5,7 +5,7 @@ $rec = New-Object System.Speech.Recognition.SpeechRecognitionEngine
 $rec.LoadGrammar((New-Object System.Speech.Recognition.DictationGrammar))
 $rec.SetInputToDefaultAudioDevice()
 
-[Console]::Error.WriteLine("PS: Grammar loaded, device set")
+[Console]::Error.WriteLine("PS: Grammar loaded, device set, starting async recognition...")
 
 $rec.add_SpeechRecognized({
     param($s, $e)
@@ -15,17 +15,8 @@ $rec.add_SpeechRecognized({
     [Console]::Out.Flush()
 })
 
-[Console]::Error.WriteLine("PS: Starting async recognition...")
 $rec.RecognizeAsync([System.Speech.Recognition.RecognizeMode]::Multiple)
-[Console]::Error.WriteLine("PS: Listening. Send STOP to quit.")
+[Console]::Error.WriteLine("PS: Listening — will run until killed by Node.")
 
-while ($true) {
-    if ([Console]::In.Peek() -ne -1) {
-        $line = [Console]::In.ReadLine()
-        if ($line -eq "STOP") { break }
-    }
-    Start-Sleep -Milliseconds 200
-}
-
-$rec.RecognizeAsyncStop()
-[Console]::Error.WriteLine("PS: Stopped.")
+# Keep alive — Node.js kills this process when dictation is stopped
+while ($true) { Start-Sleep -Milliseconds 500 }

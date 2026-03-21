@@ -1271,10 +1271,8 @@ ipcMain.handle('start-dictation', (event) => {
 ipcMain.handle('stop-dictation', () => {
   console.log('[Main] stop-dictation called');
   if (speechProcess) {
-    try { speechProcess.stdin.write('STOP\n'); } catch (_) {}
-    setTimeout(() => {
-      if (speechProcess) { speechProcess.kill(); speechProcess = null; }
-    }, 500);
+    speechProcess.kill();
+    speechProcess = null;
   }
 });
 
@@ -1320,10 +1318,8 @@ ipcMain.handle('sapi:start', (event) => {
 
 ipcMain.handle('sapi:stop', () => {
   if (speechProcess) {
-    try { speechProcess.stdin.write('STOP\n'); } catch (_) {}
-    setTimeout(() => {
-      if (speechProcess) { speechProcess.kill(); speechProcess = null; }
-    }, 500);
+    speechProcess.kill();
+    speechProcess = null;
   }
 });
 
