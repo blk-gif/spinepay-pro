@@ -1163,23 +1163,12 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
   }
 
   // ── Voice Dictation (Whisper offline via @xenova/transformers) ────────────────
-  let recordingCtx    = null;
-  let recordingProc   = null;
+  let mediaRecorder   = null;
+  let audioChunks     = [];
   let recordingStream = null;
-  let pcmChunks       = [];
 
   function getSelectedMicId() {
     return localStorage.getItem('soapMicDeviceId') || '';
-  }
-
-  // Flatten Float32 PCM chunks into a single ArrayBuffer for IPC transfer
-  function flattenPCM(chunks) {
-    let len = 0;
-    chunks.forEach(c => len += c.length);
-    const out = new Float32Array(len);
-    let off = 0;
-    chunks.forEach(c => { out.set(c, off); off += c.length; });
-    return out.buffer;
   }
 
   async function _startCapture(fieldId, global) {
@@ -1205,14 +1194,11 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
     }
     draw();
 
-    // PCM capture at 16 kHz for Whisper
-    recordingCtx  = new AudioContext({ sampleRate: 16000 });
-    const src     = recordingCtx.createMediaStreamSource(recordingStream);
-    recordingProc = recordingCtx.createScriptProcessor(4096, 1, 1);
-    pcmChunks     = [];
-    recordingProc.onaudioprocess = (e) => pcmChunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
-    src.connect(recordingProc);
-    recordingProc.connect(recordingCtx.destination);
+    // MediaRecorder capture
+    audioChunks   = [];
+    mediaRecorder = new MediaRecorder(recordingStream);
+    mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
+    mediaRecorder.start();
   }
 
   async function startDictation(fieldId) {
@@ -1265,47 +1251,71 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
     if (!isRecording) return;
     isRecording = false;
 
-    // Stop PCM capture
-    if (recordingProc) { recordingProc.disconnect(); recordingProc = null; }
-    if (recordingCtx)  { recordingCtx.close().catch(() => {}); recordingCtx = null; }
     stopLevelMeter();
-    if (recordingStream) { recordingStream.getTracks().forEach(t => t.stop()); recordingStream = null; }
 
-    const chunks = pcmChunks.splice(0);
-    resetDictateUI();
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      const capturedChunks = audioChunks.slice();
+      const capturedField  = recordingField;
+      const capturedGlobal = globalDictMode;
 
-    if (chunks.length === 0) return;
+      mediaRecorder.onstop = async () => {
+        if (recordingStream) { recordingStream.getTracks().forEach(t => t.stop()); recordingStream = null; }
+        mediaRecorder = null;
+        resetDictateUI();
 
-    showDictateStatus('\u23F3 Transcribing...');
+        if (capturedChunks.length === 0) return;
+        showDictateStatus('\u23F3 Transcribing...');
 
-    const pcmBuf = flattenPCM(chunks);
-    window.api.transcribe.audio(pcmBuf).then(result => {
-      const statusEl = document.getElementById('dictateStatus');
-      if (statusEl) statusEl.style.display = 'none';
+        try {
+          const blob        = new Blob(capturedChunks, { type: 'audio/webm' });
+          const arrayBuffer = await blob.arrayBuffer();
+          const audioCtx    = new AudioContext({ sampleRate: 16000 });
+          const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+          const float32     = audioBuffer.getChannelData(0);
+          audioCtx.close();
 
-      if (!result.success || !result.text || !result.text.trim()) {
-        if (!result.success) toast('Transcription failed: ' + (result.error || 'unknown'), 'error');
-        return;
-      }
+          console.log('[Voice] Sending', float32.length, 'samples to Whisper');
+          const result = await window.api.transcribe.audio(Array.from(float32));
 
-      const text  = result.text.trim();
-      const lower = text.toLowerCase();
+          const statusEl = document.getElementById('dictateStatus');
+          if (statusEl) statusEl.style.display = 'none';
 
-      if (globalDictMode) {
-        if      (lower.includes('subjective')) recordingField = 'soapSubjective';
-        else if (lower.includes('objective'))  recordingField = 'soapObjective';
-        else if (lower.includes('assessment')) recordingField = 'soapAssessment';
-        else if (lower.includes('plan'))       recordingField = 'soapPlan';
-        else {
-          const field = document.getElementById(recordingField);
-          if (field) { field.value += text + ' '; field.dispatchEvent(new Event('input', { bubbles: true })); }
+          if (!result.success || !result.text || !result.text.trim()) {
+            if (!result.success) toast('Transcription failed: ' + (result.error || 'unknown'), 'error');
+            return;
+          }
+
+          const text  = result.text.trim();
+          const lower = text.toLowerCase();
+
+          if (capturedGlobal) {
+            if      (lower.includes('subjective')) recordingField = 'soapSubjective';
+            else if (lower.includes('objective'))  recordingField = 'soapObjective';
+            else if (lower.includes('assessment')) recordingField = 'soapAssessment';
+            else if (lower.includes('plan'))       recordingField = 'soapPlan';
+            else {
+              const field = document.getElementById(recordingField);
+              if (field) { field.value += text + ' '; field.dispatchEvent(new Event('input', { bubbles: true })); }
+            }
+          } else {
+            const field = document.getElementById(capturedField);
+            if (field) { field.value += text + ' '; field.dispatchEvent(new Event('input', { bubbles: true })); }
+          }
+          console.log('[Whisper] Written:', text, '\u2192', capturedField);
+        } catch (err) {
+          toast('Transcription failed: ' + err.message, 'error');
+          const statusEl = document.getElementById('dictateStatus');
+          if (statusEl) statusEl.style.display = 'none';
         }
-      } else {
-        const field = document.getElementById(recordingField);
-        if (field) { field.value += text + ' '; field.dispatchEvent(new Event('input', { bubbles: true })); }
-      }
-      console.log('[Whisper] Written:', text, '\u2192', recordingField);
-    });
+      };
+
+      audioChunks = [];
+      mediaRecorder.stop();
+    } else {
+      if (recordingStream) { recordingStream.getTracks().forEach(t => t.stop()); recordingStream = null; }
+      mediaRecorder = null;
+      resetDictateUI();
+    }
   }
 
   function resetDictateUI() {

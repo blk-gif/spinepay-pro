@@ -1276,21 +1276,21 @@ let whisperPipeline = null;
 
 async function getWhisperPipeline() {
   if (!whisperPipeline) {
-    console.log('[Whisper] Loading model (first time: downloads ~77MB)...');
+    console.log('[Whisper] Loading model...');
     const { pipeline } = await import('@xenova/transformers');
-    whisperPipeline = await pipeline('automatic-speech-recognition', 'Xenova/whisper-tiny.en');
-    console.log('[Whisper] Model ready');
+    whisperPipeline = await pipeline('automatic-speech-recognition', 'Xenova/whisper-base.en');
+    console.log('[Whisper] Model loaded and cached');
   }
   return whisperPipeline;
 }
 
-ipcMain.handle('transcribe-audio', async (event, audioBuffer) => {
+ipcMain.handle('transcribe-audio', async (event, float32Array) => {
   try {
-    const pipe = await getWhisperPipeline();
-    const float32 = new Float32Array(audioBuffer);
-    console.log('[Whisper] Transcribing', float32.length, 'samples...');
-    const result = await pipe(float32, { language: 'english', task: 'transcribe' });
-    console.log('[Whisper] Result:', result.text);
+    const pipe    = await getWhisperPipeline();
+    const audio   = new Float32Array(float32Array);
+    console.log('[Whisper] Array length:', audio.length);
+    const result  = await pipe(audio, { language: 'english', task: 'transcribe' });
+    console.log('[Whisper] Transcript:', result.text);
     return { success: true, text: result.text };
   } catch (err) {
     console.error('[Whisper] Error:', err.message);
@@ -1302,6 +1302,8 @@ ipcMain.handle('transcribe-audio', async (event, audioBuffer) => {
 app.whenReady().then(() => {
   initDatabase();
   createWindow();
+  // Preload Whisper model in background so first dictation has no delay
+  setTimeout(() => getWhisperPipeline().catch(() => {}), 3000);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
