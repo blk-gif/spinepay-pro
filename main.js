@@ -1213,38 +1213,43 @@ ipcMain.handle('hcfa:delete', (event, id) => {
 let speechProcess = null;
 
 ipcMain.handle('sapi:start', (event) => {
-  if (speechProcess) return;
+  if (speechProcess) { console.log('[SAPI] Already running'); return; }
   const scriptPath = path.join(__dirname, 'speech-server.ps1');
+  console.log('[SAPI] Spawning PowerShell:', scriptPath);
   speechProcess = spawn('powershell.exe', [
     '-ExecutionPolicy', 'Bypass',
     '-NonInteractive',
     '-File', scriptPath
   ], { stdio: ['pipe', 'pipe', 'pipe'] });
 
+  let stdoutBuffer = '';
   speechProcess.stdout.on('data', (data) => {
-    const lines = data.toString().split('\n');
+    stdoutBuffer += data.toString();
+    const lines = stdoutBuffer.split('\n');
+    stdoutBuffer = lines.pop(); // keep incomplete line in buffer
     lines.forEach(line => {
       line = line.trim();
+      console.log('[SAPI] stdout line:', line);
       if (line.startsWith('RESULT:')) {
         const text = line.replace('RESULT:', '').trim();
-        console.log('[SAPI] Recognized:', text);
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('sapi:result', text);
+        if (text) {
+          console.log('[SAPI] Sending to renderer:', text);
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('sapi:result', text);
+          }
         }
       }
     });
   });
 
   speechProcess.stderr.on('data', (data) => {
-    console.error('[SAPI] Error:', data.toString());
+    console.error('[SAPI] stderr:', data.toString().trim());
   });
 
   speechProcess.on('close', (code) => {
-    console.log('[SAPI] Process closed:', code);
+    console.log('[SAPI] Process exited:', code);
     speechProcess = null;
   });
-
-  console.log('[SAPI] Started');
 });
 
 ipcMain.handle('sapi:stop', () => {

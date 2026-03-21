@@ -1165,6 +1165,7 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
   // ── Voice Dictation (Web Speech API — Windows Speech Recognition) ─────────────
 
   function handleDictationResult(text) {
+    console.log('[Renderer] Received transcript:', text);
     const lower = text.toLowerCase().trim();
     if (lower === 'subjective') { recordingField = 'soapSubjective'; return; }
     if (lower === 'objective')  { recordingField = 'soapObjective';  return; }
@@ -1174,7 +1175,9 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
     if (field) {
       field.value += text + ' ';
       field.dispatchEvent(new Event('input', { bubbles: true }));
-      console.log('[SpinePay] Written to', recordingField, ':', text);
+      console.log('[Renderer] Written to field:', recordingField);
+    } else {
+      console.error('[Renderer] Field not found:', recordingField);
     }
   }
 
