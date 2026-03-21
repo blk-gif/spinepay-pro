@@ -155,6 +155,7 @@ contextBridge.exposeInMainWorld('api', {
   wizard: {
     complete: (payload) => ipcRenderer.invoke('wizard:complete', payload),
     selectFolder: () => ipcRenderer.invoke('wizard:select-folder'),
+    ensureFolder: (folderPath) => ipcRenderer.invoke('wizard:ensure-folder', folderPath),
     launch: () => ipcRenderer.invoke('wizard:launch')
   },
   backup: {

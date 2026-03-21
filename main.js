@@ -1238,8 +1238,18 @@ ipcMain.handle('settings:get-all', () => {
   return Object.fromEntries(rows.map(r => [r.key, r.value]));
 });
 ipcMain.handle('settings:set', (event, { key, value }) => {
-  db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)').run(key, value);
-  return { success: true };
+  console.log('[Settings] Saving:', key, '=', value, typeof value);
+  if (value === undefined || value === null) {
+    console.error('[Settings] Attempted to save undefined value for key:', key);
+    return { success: false, error: 'Value is undefined' };
+  }
+  try {
+    db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)').run(key, String(value));
+    return { success: true };
+  } catch (err) {
+    console.error('[Settings] Error:', err.message);
+    return { success: false, error: err.message };
+  }
 });
 
 // ── WIZARD ───────────────────────────────────────────────────────────────────
@@ -1318,6 +1328,18 @@ ipcMain.handle('wizard:select-folder', async () => {
   });
   if (result.canceled) return null;
   return result.filePaths[0];
+});
+
+ipcMain.handle('wizard:ensure-folder', (event, folderPath) => {
+  try {
+    if (!fs.existsSync(folderPath)) {
+      fs.mkdirSync(folderPath, { recursive: true });
+      console.log('[Backup] Created folder:', folderPath);
+    }
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
 });
 
 ipcMain.handle('wizard:launch', () => {

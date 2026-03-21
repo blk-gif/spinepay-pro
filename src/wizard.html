@@ -553,6 +553,16 @@ async function finish() {
   nextBtn.disabled = true;
   nextBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Setting up...';
 
+  const backupFolderInput = document.getElementById('backupFolder');
+  const backupFolder = (backupFolderInput ? backupFolderInput.value.trim() : '') || 'C:\\SpinePayBackups';
+
+  if (typeof backupFolder !== 'string' || !backupFolder.trim()) {
+    showAlert('step5Alert', 'Please select a valid backup folder.');
+    nextBtn.disabled = false;
+    nextBtn.innerHTML = '<i class="fa-solid fa-check"></i> Finish Setup';
+    return;
+  }
+
   const payload = {
     practice: {
       name:  document.getElementById('pName').value.trim(),
@@ -571,10 +581,11 @@ async function finish() {
       password:  document.getElementById('aPass').value
     },
     staff:         collectStaff(),
-    backup_folder: document.getElementById('backupFolder').value.trim() || 'C:\\SpinePayBackups'
+    backup_folder: backupFolder
   };
 
   try {
+    await window.api.wizard.ensureFolder(backupFolder);
     const result = await window.api.wizard.complete(payload);
     if (result.success) {
       nextBtn.innerHTML = '<i class="fa-solid fa-check"></i> Done!';
