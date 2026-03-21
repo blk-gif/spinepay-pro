@@ -4,11 +4,8 @@ const crypto = require('crypto');
 const fs = require('fs');
 const { runMigrations } = require('./db-migrations');
 
-// Check Windows SAPI availability on launch
-const { spawn } = require('child_process');
-const sapiTest = spawn('powershell.exe', ['-Command', 'Add-Type -AssemblyName System.Speech; Write-Output OK']);
-sapiTest.stdout.on('data', d => console.log('[SAPI] Available:', d.toString().trim()));
-sapiTest.stderr.on('data', d => console.error('[SAPI] Not available:', d.toString()));
+const { nodewhisper } = require('nodejs-whisper');
+const os = require('os');
 
 let mainWindow;
 let db;
@@ -1275,11 +1272,27 @@ ipcMain.handle('file:save-dialog', async (event, { defaultPath, content }) => {
   return { success: true, filePath: result.filePath };
 });
 
-// Use the user's installed Chrome for Web Speech API support
-const chromePath = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-if (fs.existsSync(chromePath)) {
-  app.commandLine.appendSwitch('browser-subprocess-path', chromePath);
-}
+// ── WHISPER OFFLINE TRANSCRIPTION ────────────────────────────────────────────
+ipcMain.handle('transcribe-audio', async (event, audioBuffer) => {
+  const tempFile = path.join(os.tmpdir(), `spinepay_${Date.now()}.wav`);
+  try {
+    fs.writeFileSync(tempFile, Buffer.from(audioBuffer));
+    console.log('[Whisper] Transcribing:', tempFile);
+    const result = await nodewhisper(tempFile, {
+      modelName: 'base.en',
+      autoDownloadModelName: 'base.en',
+      verbose: false,
+      whisperOptions: { outputInText: true }
+    });
+    console.log('[Whisper] Result:', result);
+    return { success: true, text: result };
+  } catch (err) {
+    console.error('[Whisper] Error:', err.message);
+    return { success: false, error: err.message };
+  } finally {
+    try { fs.unlinkSync(tempFile); } catch (_) {}
+  }
+});
 
 // APP LIFECYCLE
 app.whenReady().then(() => {

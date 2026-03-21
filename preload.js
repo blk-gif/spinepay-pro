@@ -143,5 +143,8 @@ contextBridge.exposeInMainWorld('api', {
   },
   print: {
     showDialog: () => ipcRenderer.invoke('print:show-dialog')
+  },
+  transcribe: {
+    audio: (buf) => ipcRenderer.invoke('transcribe-audio', buf)
   }
 });

@@ -1162,124 +1162,167 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
     win.document.close();
   }
 
-  // ── Voice Dictation (Web Speech API) ─────────────────────────────────────────
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  let recognition = null;
-
-  if (SpeechRecognition) {
-    recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = 'en-US';
-
-    recognition.onresult = (event) => {
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const text  = event.results[i][0].transcript;
-        const final = event.results[i].isFinal;
-        if (final) {
-          const lower = text.toLowerCase().trim();
-          if (lower.includes('subjective')) { recordingField = 'soapSubjective'; return; }
-          if (lower.includes('objective'))  { recordingField = 'soapObjective';  return; }
-          if (lower.includes('assessment')) { recordingField = 'soapAssessment'; return; }
-          if (lower.includes('plan'))       { recordingField = 'soapPlan';       return; }
-          const field = document.getElementById(recordingField);
-          if (field) {
-            field.value += text + ' ';
-            field.dispatchEvent(new Event('input', { bubbles: true }));
-            console.log('[Voice] Written:', text, '→', recordingField);
-          }
-        }
-      }
-    };
-
-    recognition.onerror = (e) => {
-      if (e.error === 'no-speech' || e.error === 'aborted') return;
-      console.error('[Voice] Error:', e.error);
-    };
-
-    recognition.onend = () => {
-      if (isRecording) setTimeout(() => recognition.start(), 200);
-    };
-  }
+  // ── Voice Dictation (Whisper offline) ─────────────────────────────────────────
+  let recordingCtx    = null;
+  let recordingProc   = null;
+  let recordingStream = null;
+  let pcmChunks       = [];
 
   function getSelectedMicId() {
     return localStorage.getItem('soapMicDeviceId') || '';
   }
 
-  function startDictation(fieldId) {
+  // Encode captured Float32 PCM chunks into a 16kHz mono WAV buffer
+  function encodeWAV(chunks, sampleRate) {
+    let len = 0;
+    chunks.forEach(c => len += c.length);
+    const samples = new Float32Array(len);
+    let off = 0;
+    chunks.forEach(c => { samples.set(c, off); off += c.length; });
+
+    const buf  = new ArrayBuffer(44 + samples.length * 2);
+    const view = new DataView(buf);
+    const ws   = (o, s) => { for (let i = 0; i < s.length; i++) view.setUint8(o + i, s.charCodeAt(i)); };
+    ws(0,  'RIFF'); view.setUint32(4,  36 + samples.length * 2, true);
+    ws(8,  'WAVE'); ws(12, 'fmt ');
+    view.setUint32(16, 16, true);  view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);   view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true); view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);  ws(36, 'data');
+    view.setUint32(40, samples.length * 2, true);
+    let o = 44;
+    for (let i = 0; i < samples.length; i++) {
+      const s = Math.max(-1, Math.min(1, samples[i]));
+      view.setInt16(o, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      o += 2;
+    }
+    return buf;
+  }
+
+  async function _startCapture(fieldId, global) {
+    const deviceId = getSelectedMicId();
+    const constraint = deviceId ? { deviceId: { exact: deviceId } } : true;
+    recordingStream = await navigator.mediaDevices.getUserMedia({ audio: constraint, video: false });
+
+    // Level meter
+    levelStream  = recordingStream;
+    analyserCtx  = new AudioContext();
+    analyserNode = analyserCtx.createAnalyser();
+    analyserNode.fftSize = 256;
+    analyserCtx.createMediaStreamSource(recordingStream).connect(analyserNode);
+    const dataArray = new Uint8Array(analyserNode.frequencyBinCount);
+    function draw() {
+      if (!isRecording) return;
+      analyserNode.getByteFrequencyData(dataArray);
+      const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+      const pct = Math.min(100, Math.round((avg / 128) * 100));
+      const bar = document.getElementById('soapLevelBar');
+      if (bar) { bar.style.width = pct + '%'; bar.style.background = pct > 60 ? '#22c55e' : pct > 20 ? '#eab308' : '#ef4444'; }
+      levelTimer = requestAnimationFrame(draw);
+    }
+    draw();
+
+    // PCM capture at 16 kHz for Whisper
+    recordingCtx  = new AudioContext({ sampleRate: 16000 });
+    const src     = recordingCtx.createMediaStreamSource(recordingStream);
+    recordingProc = recordingCtx.createScriptProcessor(4096, 1, 1);
+    pcmChunks     = [];
+    recordingProc.onaudioprocess = (e) => pcmChunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    src.connect(recordingProc);
+    recordingProc.connect(recordingCtx.destination);
+  }
+
+  async function startDictation(fieldId) {
     if (isRecording) { stopDictation(); return; }
-    if (!recognition) { toast('Speech recognition not available in this browser', 'error'); return; }
     recordingField = fieldId;
     globalDictMode = false;
     isRecording    = true;
-    recognition.start();
-    updateMicUI(fieldId, true);
-    showDictateStatus('LISTENING \u25cf ' + fieldId.replace('soap', '').toUpperCase() + ' \u2014 click mic to stop');
-    startLevelMeter();
+    try {
+      await _startCapture(fieldId, false);
+      updateMicUI(fieldId, true);
+      showDictateStatus('\uD83D\uDD34 RECORDING \u25cf ' + fieldId.replace('soap', '').toUpperCase() + ' \u2014 click mic to stop & transcribe');
+    } catch (err) {
+      isRecording = false;
+      toast('Mic access failed: ' + err.message, 'error');
+    }
   }
 
-  function startGlobalDictation() {
+  async function startGlobalDictation() {
     if (isRecording) { stopDictation(); return; }
-    if (!recognition) { toast('Speech recognition not available in this browser', 'error'); return; }
     recordingField = 'soapSubjective';
     globalDictMode = true;
     isRecording    = true;
-    recognition.start();
-    const dictBtn = document.getElementById('dictateAllBtn');
-    if (dictBtn) {
-      dictBtn.style.background  = 'rgba(220,38,38,0.15)';
-      dictBtn.style.borderColor = '#dc2626';
-      dictBtn.style.color       = '#ef4444';
-      dictBtn.innerHTML = '<i class="fa-solid fa-stop"></i> Stop Dictation';
+    try {
+      await _startCapture('soapSubjective', true);
+      const dictBtn = document.getElementById('dictateAllBtn');
+      if (dictBtn) {
+        dictBtn.style.background  = 'rgba(220,38,38,0.15)';
+        dictBtn.style.borderColor = '#dc2626';
+        dictBtn.style.color       = '#ef4444';
+        dictBtn.innerHTML = '<i class="fa-solid fa-stop"></i> Stop & Transcribe';
+      }
+      updateMicUI('soapSubjective', true);
+      showDictateStatus('\uD83D\uDD34 RECORDING \u2014 say "Subjective / Objective / Assessment / Plan" to label sections, click to transcribe');
+    } catch (err) {
+      isRecording = false;
+      toast('Mic access failed: ' + err.message, 'error');
     }
-    updateMicUI('soapSubjective', true);
-    showDictateStatus('LISTENING \u25cf ALL FIELDS \u2014 say "Subjective / Objective / Assessment / Plan" to switch');
-    startLevelMeter();
-  }
-
-  // AudioContext analyser — animates the level bar in the status pill
-  function startLevelMeter() {
-    const deviceId = getSelectedMicId();
-    const audioConstraint = deviceId ? { deviceId: { exact: deviceId } } : true;
-    navigator.mediaDevices.getUserMedia({ audio: audioConstraint, video: false })
-      .then((stream) => {
-        levelStream  = stream;
-        analyserCtx  = new AudioContext();
-        analyserNode = analyserCtx.createAnalyser();
-        analyserNode.fftSize = 256;
-        analyserCtx.createMediaStreamSource(stream).connect(analyserNode);
-        const dataArray = new Uint8Array(analyserNode.frequencyBinCount);
-        function draw() {
-          if (!isRecording) return;
-          analyserNode.getByteFrequencyData(dataArray);
-          const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-          const pct = Math.min(100, Math.round((avg / 128) * 100));
-          const bar = document.getElementById('soapLevelBar');
-          if (bar) {
-            bar.style.width      = pct + '%';
-            bar.style.background = pct > 60 ? '#22c55e' : pct > 20 ? '#eab308' : '#ef4444';
-          }
-          levelTimer = requestAnimationFrame(draw);
-        }
-        draw();
-      })
-      .catch(() => { /* level meter is optional */ });
   }
 
   function stopLevelMeter() {
     if (levelTimer)  { cancelAnimationFrame(levelTimer); levelTimer = null; }
     if (analyserCtx) { analyserCtx.close().catch(() => {}); analyserCtx = null; analyserNode = null; }
-    if (levelStream) { levelStream.getTracks().forEach(t => t.stop()); levelStream = null; }
+    levelStream = null; // stream tracks stopped by stopDictation
     const bar = document.getElementById('soapLevelBar');
     if (bar) bar.style.width = '0%';
   }
 
   // Called when mic button clicked again, modal closes, or save triggered
   function stopDictation() {
+    if (!isRecording) return;
     isRecording = false;
-    if (recognition) recognition.stop();
+
+    // Stop PCM capture
+    if (recordingProc) { recordingProc.disconnect(); recordingProc = null; }
+    if (recordingCtx)  { recordingCtx.close().catch(() => {}); recordingCtx = null; }
     stopLevelMeter();
+    if (recordingStream) { recordingStream.getTracks().forEach(t => t.stop()); recordingStream = null; }
+
+    const chunks = pcmChunks.splice(0);
     resetDictateUI();
+
+    if (chunks.length === 0) return;
+
+    showDictateStatus('\u23F3 Transcribing...');
+
+    const wavBuf = encodeWAV(chunks, 16000);
+    window.api.transcribe.audio(wavBuf).then(result => {
+      const statusEl = document.getElementById('dictateStatus');
+      if (statusEl) statusEl.style.display = 'none';
+
+      if (!result.success || !result.text || !result.text.trim()) {
+        if (!result.success) toast('Transcription failed: ' + (result.error || 'unknown'), 'error');
+        return;
+      }
+
+      const text  = result.text.trim();
+      const lower = text.toLowerCase();
+
+      if (globalDictMode) {
+        if      (lower.includes('subjective')) recordingField = 'soapSubjective';
+        else if (lower.includes('objective'))  recordingField = 'soapObjective';
+        else if (lower.includes('assessment')) recordingField = 'soapAssessment';
+        else if (lower.includes('plan'))       recordingField = 'soapPlan';
+        else {
+          const field = document.getElementById(recordingField);
+          if (field) { field.value += text + ' '; field.dispatchEvent(new Event('input', { bubbles: true })); }
+        }
+      } else {
+        const field = document.getElementById(recordingField);
+        if (field) { field.value += text + ' '; field.dispatchEvent(new Event('input', { bubbles: true })); }
+      }
+      console.log('[Whisper] Written:', text, '\u2192', recordingField);
+    });
   }
 
   function resetDictateUI() {
