@@ -317,6 +317,12 @@ function initDatabase() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS settings (
+      key TEXT PRIMARY KEY,
+      value TEXT,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   // ── Migrate existing databases: add missing columns ─────────────────────────
@@ -1200,11 +1206,23 @@ ipcMain.handle('hcfa:update', (event, { id, data }) => {
   `).run({ fax_recipient: null, fax_sent_at: null, fax_sent_by: null, printed_at: null, ...data, id });
   return { success: true };
 });
+ipcMain.handle('hcfa:get-by-id', (event, id) => {
+  return db.prepare('SELECT * FROM hcfa_forms WHERE id = ?').get(id) || null;
+});
 ipcMain.handle('hcfa:delete', (event, id) => {
   db.prepare('DELETE FROM hcfa_forms WHERE id = ?').run(id);
   return { success: true };
 });
 
+// ── SETTINGS ─────────────────────────────────────────────────────────────────
+ipcMain.handle('settings:get-all', () => {
+  const rows = db.prepare('SELECT key, value FROM settings').all();
+  return Object.fromEntries(rows.map(r => [r.key, r.value]));
+});
+ipcMain.handle('settings:set', (event, { key, value }) => {
+  db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)').run(key, value);
+  return { success: true };
+});
 
 // ── TIME CLOCK ───────────────────────────────────────────────────────────────
 ipcMain.handle('timeclock:clock-in', (event, { userId, notes }) => {

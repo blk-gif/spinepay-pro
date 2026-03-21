@@ -103,6 +103,7 @@ window.Patients = (() => {
             <button class="tab-btn" data-tab="insurance"><i class="fa-solid fa-shield-halved"></i> Insurance</button>
             <button class="tab-btn" data-tab="visits"><i class="fa-solid fa-calendar-check"></i> Visit History</button>
             <button class="tab-btn" data-tab="claims"><i class="fa-solid fa-file-invoice-dollar"></i> Claims</button>
+            <button class="tab-btn" data-tab="hcfa"><i class="fa-solid fa-file-medical"></i> HCFA Forms</button>
           </div>
 
           <div class="tab-pane active" id="tab-info">
@@ -133,6 +134,14 @@ window.Patients = (() => {
             <div class="card-body-flush">
               <div class="table-wrapper" id="claimsTabContent">
                 <div class="table-empty"><i class="fa-regular fa-file"></i><p>No claims found</p></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="tab-pane" id="tab-hcfa">
+            <div class="card-body-flush">
+              <div id="hcfaTabContent">
+                <div class="table-empty"><i class="fa-solid fa-file-medical"></i><p>No HCFA forms found</p></div>
               </div>
             </div>
           </div>
@@ -460,6 +469,7 @@ window.Patients = (() => {
       loadInsuranceTab(patientId);
       loadVisitsTab(patientId);
       loadClaimsTab(patientId);
+      loadHCFATab(patientId);
 
       // Tab switching
       document.querySelectorAll('#patientDetailTabs .tab-btn').forEach(btn => {
@@ -576,6 +586,44 @@ window.Patients = (() => {
         </table>`;
     } catch (err) {
       container.innerHTML = '<div class="table-empty"><p>Failed to load claims</p></div>';
+    }
+  }
+
+  async function loadHCFATab(patientId) {
+    const container = document.getElementById('hcfaTabContent');
+    if (!container) return;
+    try {
+      const forms = await window.api.hcfa.getByPatient(patientId);
+      if (!forms || forms.length === 0) {
+        container.innerHTML = `<div class="table-empty"><i class="fa-solid fa-file-medical"></i><p>No HCFA forms on file</p></div>`;
+        return;
+      }
+      const statusColor = { Draft: '#9ca3af', Printed: '#3b82f6', Faxed: '#f59e0b', Submitted: '#10b981' };
+      container.innerHTML = `
+        <table>
+          <thead>
+            <tr><th>Date Created</th><th>Note Date</th><th>Status</th><th>Sent To</th><th></th></tr>
+          </thead>
+          <tbody>
+            ${forms.map(f => {
+              const col = statusColor[f.status] || '#9ca3af';
+              return `<tr>
+                <td class="td-primary">${formatDate(f.created_at)}</td>
+                <td>${f.note_date ? formatDate(f.note_date) : '—'}</td>
+                <td><span style="padding:3px 10px;border-radius:20px;font-size:11px;font-weight:700;background:${col}22;color:${col};border:1px solid ${col}44;">${f.status}</span></td>
+                <td style="font-size:12px;">${f.fax_recipient || '—'}</td>
+                <td>
+                  <button class="btn btn-sm btn-outline" title="View / Reprint"
+                    onclick="window.SoapNotes.reopenHCFA(${f.id})">
+                    <i class="fa-solid fa-eye"></i> View
+                  </button>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>`;
+    } catch (_) {
+      container.innerHTML = '<div class="table-empty"><p>Failed to load HCFA forms</p></div>';
     }
   }
 

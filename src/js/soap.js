@@ -196,6 +196,32 @@ window.SoapNotes = (() => {
         </div>
       </div>
 
+      <!-- Fax Cover Modal -->
+      <div class="modal-overlay" id="faxCoverModal">
+        <div class="modal modal-sm">
+          <div class="modal-header">
+            <div class="modal-title"><i class="fa-solid fa-fax"></i> Fax Cover Sheet</div>
+            <button class="modal-close" id="faxCoverModalClose">&times;</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-group" style="margin-bottom:14px;">
+              <label class="form-label">Insurance Company (To:)</label>
+              <input type="text" class="form-control" id="faxCoverInsName" placeholder="Insurance company name" />
+            </div>
+            <div class="form-group">
+              <label class="form-label">Fax Number</label>
+              <input type="text" class="form-control" id="faxCoverFaxNum" placeholder="(555) 555-0000" />
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" id="faxCoverCancelBtn">Cancel</button>
+            <button class="btn btn-primary" id="faxCoverPrintBtn">
+              <i class="fa-solid fa-print"></i> Print Cover Sheet
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- HCFA Modal -->
       <div class="modal-overlay" id="hcfaModal">
         <div class="modal" style="max-width:980px;width:97vw;">
@@ -218,7 +244,7 @@ window.SoapNotes = (() => {
             </div>
             <button class="modal-close" id="hcfaModalClose">&times;</button>
           </div>
-          <div class="modal-body" style="padding:0;max-height:72vh;overflow-y:auto;background:#d0d0d0;">
+          <div class="modal-body" style="padding:0;height:calc(90vh - 120px);overflow-y:auto;background:#d0d0d0;">
             <div id="hcfaFormContainer" style="padding:16px;"></div>
           </div>
         </div>
@@ -465,7 +491,9 @@ window.SoapNotes = (() => {
         insurance = (ins || []).find(i => i.type === 'primary') || ins?.[0] || null;
       } catch (_) {}
 
-      currentHcfaData = buildHCFAData(note, patient, insurance);
+      let practiceSettings = {};
+      try { practiceSettings = await window.api.settings.getAll(); } catch (_) {}
+      currentHcfaData = buildHCFAData(note, patient, insurance, practiceSettings);
       renderHCFAForm(currentHcfaData);
       openModal('hcfaModal');
 
@@ -486,10 +514,8 @@ window.SoapNotes = (() => {
   }
 
   async function reopenHCFA(hcfaId) {
-    if (!currentNote) return;
     try {
-      const forms = await window.api.hcfa.getByPatient(currentNote.patient_id);
-      const form  = forms.find(f => f.id === hcfaId);
+      const form = await window.api.hcfa.getById(hcfaId);
       if (!form) return;
       currentHcfaId   = hcfaId;
       currentHcfaData = form.form_data ? JSON.parse(form.form_data) : {};
@@ -509,7 +535,11 @@ window.SoapNotes = (() => {
   }
 
   // ── Build HCFA data object from SOAP + patient + insurance ───────────────────
-  function buildHCFAData(note, patient, insurance) {
+  function buildHCFAData(note, patient, insurance, settings = {}) {
+    const practiceNpi    = settings.PRACTICE_NPI          || PRACTICE.npi;
+    const practiceEin    = settings.PRACTICE_EIN          || PRACTICE.ein;
+    const billingName    = settings.BILLING_PROVIDER_NAME || PRACTICE.name;
+    const acceptAssign   = settings.ACCEPTING_ASSIGNMENT  || 'YES';
     const insProvider = (insurance?.provider || '').toLowerCase();
     let insType = 'other';
     if (insProvider.includes('medicare'))                            insType = 'medicare';
@@ -569,20 +599,20 @@ window.SoapNotes = (() => {
       box_17b:          '',
       box_21_codes:     diagCodes,
       box_24_lines:     serviceLines,
-      box_25_ein:       PRACTICE.ein,
+      box_25_ein:       practiceEin,
       box_26_acct:      String(patient?.id || ''),
-      box_27:           'YES',
+      box_27:           acceptAssign,
       box_28_total:     '',
       box_31_sig:       'Signature on File',
       box_31_date:      note.note_date || '',
-      box_32_name:      PRACTICE.name,
+      box_32_name:      billingName,
       box_32_addr:      PRACTICE.address,
       box_32_city_st_zip: `${PRACTICE.city}, ${PRACTICE.state} ${PRACTICE.zip}`,
-      box_33_name:      PRACTICE.name,
+      box_33_name:      billingName,
       box_33_addr:      PRACTICE.address,
       box_33_city_st_zip: `${PRACTICE.city}, ${PRACTICE.state} ${PRACTICE.zip}`,
       box_33_phone:     PRACTICE.phone,
-      box_33_npi:       PRACTICE.npi,
+      box_33_npi:       practiceNpi,
       patient_name:     patient ? `${patient.first_name || ''} ${patient.last_name || ''}` : ''
     };
   }
@@ -876,8 +906,12 @@ window.SoapNotes = (() => {
 <style>
   * { box-sizing:border-box; margin:0; padding:0; }
   body { font-family:Arial,Helvetica,sans-serif; background:#fff; }
-  @page { size:8.5in 11in; margin:0.3in; }
-  @media print { html,body { width:8.5in; } }
+  @page { size:8.5in 11in; margin:0.25in; }
+  @media print {
+    html, body { width:8.5in; height:11in; }
+    #cms1500Form { width:100% !important; max-width:100% !important; box-shadow:none !important; }
+  }
+  #cms1500Form { width:100%; max-width:780px; margin:0 auto; }
 </style></head><body>
 ${buildCMS1500HTML(currentHcfaData)}
 <script>window.onload=function(){setTimeout(function(){window.print();},300);};<\/script>
@@ -913,12 +947,9 @@ ${buildCMS1500HTML(currentHcfaData)}
     toast('Print dialog opened — select "Save as PDF" as the printer', 'info');
   }
 
-  async function showFaxCover() {
-    if (!currentHcfaData) return;
-    const d       = currentHcfaData;
-    const insName = d.ins_provider || 'Insurance Company';
-    const today   = new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' });
-
+  function printFaxCoverSheet(insName, faxNum) {
+    const d     = currentHcfaData;
+    const today = new Date().toLocaleDateString('en-US', { year:'numeric', month:'long', day:'numeric' });
     const win = window.open('', '_blank', 'width=720,height=950');
     win.document.write(`<!DOCTYPE html>
 <html><head><meta charset="utf-8"><title>Fax Cover Sheet</title>
@@ -940,7 +971,7 @@ ${buildCMS1500HTML(currentHcfaData)}
 </style></head><body>
 <h1>FAX COVER SHEET</h1>
 <div class="row"><span class="lbl">TO:</span><span class="line">${insName}</span></div>
-<div class="row"><span class="lbl">FAX NUMBER:</span><span class="line">&nbsp;</span></div>
+<div class="row"><span class="lbl">FAX NUMBER:</span><span class="line">${faxNum || '&nbsp;'}</span></div>
 <div class="row"><span class="lbl">FROM:</span><span class="line">${PRACTICE.name}</span></div>
 <div class="row"><span class="lbl">FAX:</span><span class="line">${PRACTICE.phone}</span></div>
 <div class="row"><span class="lbl">PHONE:</span><span class="line">${PRACTICE.phone}</span></div>
@@ -962,6 +993,15 @@ ${buildCMS1500HTML(currentHcfaData)}
     win.document.close();
   }
 
+  function showFaxCover() {
+    if (!currentHcfaData) return;
+    const insName = document.getElementById('faxCoverInsName');
+    const faxNum  = document.getElementById('faxCoverFaxNum');
+    if (insName) insName.value = currentHcfaData.ins_provider || '';
+    if (faxNum)  faxNum.value  = '';
+    openModal('faxCoverModal');
+  }
+
   async function sendToInsurance() {
     if (!currentHcfaData || !currentHcfaId) return;
     const insName = currentHcfaData.ins_provider || 'Insurance Company';
@@ -975,13 +1015,13 @@ ${buildCMS1500HTML(currentHcfaData)}
     const now  = new Date().toISOString();
     await window.api.hcfa.update(currentHcfaId, {
       form_data:     JSON.stringify(currentHcfaData),
-      status:        'Faxed',
+      status:        'Submitted',
       fax_recipient: insName,
       fax_sent_at:   now,
       fax_sent_by:   user ? user.username : 'Staff',
       printed_at:    null
     });
-    toast(`Fax logged — sent to ${insName} at ${new Date().toLocaleTimeString('en-US')}`, 'success');
+    toast(`Claim submitted — logged to ${insName} at ${new Date().toLocaleTimeString('en-US')}`, 'success');
     closeModal('hcfaModal');
     if (currentNote) loadHCFAHistory(currentNote.patient_id);
   }
@@ -1405,6 +1445,14 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
 
     setupModalClose('soapModal', ['soapModalClose', 'soapModalCancel']);
     setupModalClose('hcfaModal', ['hcfaModalClose']);
+    setupModalClose('faxCoverModal', ['faxCoverModalClose', 'faxCoverCancelBtn']);
+
+    document.getElementById('faxCoverPrintBtn')?.addEventListener('click', () => {
+      const insName = document.getElementById('faxCoverInsName')?.value.trim() || currentHcfaData?.ins_provider || 'Insurance Company';
+      const faxNum  = document.getElementById('faxCoverFaxNum')?.value.trim() || '';
+      closeModal('faxCoverModal');
+      printFaxCoverSheet(insName, faxNum);
+    });
 
     // Stop dictation when SOAP modal closes
     document.getElementById('soapModalClose')?.addEventListener('click',  stopDictation);

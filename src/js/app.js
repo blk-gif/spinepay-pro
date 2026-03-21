@@ -169,7 +169,8 @@ window.App = (() => {
       waitlist:   'Waitlist',
       referrals:  'Referrals',
       timeclock:  'Time Clock',
-      reminders:  'Reminders'
+      reminders:  'Reminders',
+      settings:   'Settings'
     };
 
     $('topbarTitle').innerHTML = `<span>${titles[module] || module}</span>`;
@@ -189,6 +190,7 @@ window.App = (() => {
       case 'referrals':   window.Referrals?.render();       break;
       case 'timeclock':   window.TimeClock?.render();       break;
       case 'reminders':   window.Reminders?.render();       break;
+      case 'settings':    window.Settings?.render();        break;
     }
   }
 

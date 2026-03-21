@@ -133,9 +133,14 @@ contextBridge.exposeInMainWorld('api', {
   hcfa: {
     getByPatient: (patientId) => ipcRenderer.invoke('hcfa:get-by-patient', patientId),
     getBySoap: (soapNoteId) => ipcRenderer.invoke('hcfa:get-by-soap', soapNoteId),
+    getById: (id) => ipcRenderer.invoke('hcfa:get-by-id', id),
     create: (data) => ipcRenderer.invoke('hcfa:create', data),
     update: (id, data) => ipcRenderer.invoke('hcfa:update', { id, data }),
     delete: (id) => ipcRenderer.invoke('hcfa:delete', id)
+  },
+  settings: {
+    getAll: () => ipcRenderer.invoke('settings:get-all'),
+    set: (key, value) => ipcRenderer.invoke('settings:set', { key, value })
   },
   file: {
     showOpenDialog: (options) => ipcRenderer.invoke('file:show-open-dialog', options),
