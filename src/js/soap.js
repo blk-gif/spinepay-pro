@@ -10,14 +10,15 @@ window.SoapNotes = (() => {
   let editingNoteId = null;
   let viewMode      = 'list';
   let currentNote   = null;
-  let activeRecognition = null;
-  let isRecording       = false;
-  let recordingField    = null;   // fieldId for single-field mode, null = global
-  let globalDictMode    = false;
-  let analyserCtx       = null;
-  let analyserNode      = null;
-  let levelStream       = null;
-  let levelTimer        = null;
+  let mediaRecorder  = null;
+  let audioChunks    = [];
+  let isRecording    = false;
+  let recordingField = null;   // fieldId currently receiving dictation
+  let globalDictMode = false;
+  let analyserCtx    = null;
+  let analyserNode   = null;
+  let levelStream    = null;
+  let levelTimer     = null;
   let currentHcfaData = null;
   let currentHcfaId   = null;
 
@@ -1163,167 +1164,161 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
     win.document.close();
   }
 
-  // ── Voice Dictation (webkitSpeechRecognition — continuous) ────────────────────
+  // ── Voice Dictation (offline — MediaRecorder → Whisper via @xenova/transformers) ─
+  // Fully offline. No Google servers. No native compilation needed.
+  // Flow: click mic → MediaRecorder captures audio → click stop →
+  //       decode + resample to 16kHz → Whisper in main process → text in field.
 
-  function startDictation(fieldId) {
+  async function startDictation(fieldId) {
     if (isRecording) { stopDictation(); return; }
     recordingField = fieldId;
     globalDictMode = false;
-    const ok = beginSpeech();
+    const ok = await beginRecording();
     if (!ok) return;
     updateMicUI(fieldId, true);
     showDictateStatus('REC \u25cf ' + fieldId.replace('soap', '').toUpperCase() + ' \u2014 click mic to stop');
   }
 
-  function startGlobalDictation() {
+  async function startGlobalDictation() {
     if (isRecording) { stopDictation(); return; }
-    recordingField = null;
+    recordingField = 'soapSubjective';
     globalDictMode = true;
-    const ok = beginSpeech();
+    const ok = await beginRecording();
     if (!ok) return;
     const dictBtn = document.getElementById('dictateAllBtn');
     if (dictBtn) {
       dictBtn.style.background  = 'rgba(220,38,38,0.15)';
       dictBtn.style.borderColor = '#dc2626';
       dictBtn.style.color       = '#ef4444';
-      dictBtn.innerHTML = '<i class="fa-solid fa-stop"></i> Stop Dictation';
+      dictBtn.innerHTML = '<i class="fa-solid fa-stop"></i> Stop & Transcribe';
     }
     updateMicUI('soapSubjective', true);
-    showDictateStatus('REC \u25cf ALL FIELDS \u2014 say "Subjective / Objective / Assessment / Plan" to separate, click to stop');
+    showDictateStatus('REC \u25cf ALL FIELDS \u2014 say "Subjective / Objective / Assessment / Plan" to separate sections');
   }
 
-  const SECTION_KEYWORDS = {
-    subjective: 'soapSubjective',
-    objective:  'soapObjective',
-    assessment: 'soapAssessment',
-    plan:       'soapPlan'
-  };
+  async function beginRecording() {
+    const deviceId = getSelectedMicId();
+    const audioConstraint = deviceId ? { deviceId: { exact: deviceId } } : true;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraint, video: false });
+      isRecording = true;
+      audioChunks = [];
 
-  // isListening  — intent: should we be listening right now?
-  // isRestarting — lock: a restart is already scheduled, don't schedule another
-  let isListening  = false;
-  let isRestarting = false;
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : (MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : '');
 
-  // Factory: always create a FRESH instance — reusing a stopped instance throws "already started"
-  function createRecognition() {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const rec = new SpeechRecognition();
-    rec.continuous     = true;
-    rec.interimResults = true;
-    rec.lang           = 'en-US';
+      mediaRecorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
 
-    rec.onstart = () => {
-      isRestarting = false;
-      console.log('[SpinePay] Recognition started');
-    };
+      mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) audioChunks.push(e.data); };
+      mediaRecorder.onstop = () => { stream.getTracks().forEach(t => t.stop()); processRecording(); };
+      mediaRecorder.start(200);
 
-    rec.onresult = (event) => {
-      let finalText   = '';
-      let interimText = '';
+      startLevelMeter();
 
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const t = event.results[i][0].transcript;
-        if (event.results[i].isFinal) finalText   += t;
-        else                          interimText += t;
-      }
-
-      const combined = (finalText || interimText).trim();
-      if (!combined) return;
-
-      // In global mode, check for section-switch keywords
-      if (globalDictMode) {
-        const lower = combined.toLowerCase();
-        for (const [kw, fieldId] of Object.entries(SECTION_KEYWORDS)) {
-          if (lower.includes(kw)) {
-            recordingField = fieldId;
-            clearInterimPreviews();
-            return;
-          }
-        }
-      }
-
-      const ta = document.getElementById(recordingField);
-      if (!ta) return;
-
-      if (finalText.trim()) {
-        console.log('[SpinePay] Transcript written to', recordingField, ':', finalText.trim());
-        ta.value += finalText.trim() + ' ';
-        ta.scrollTop = ta.scrollHeight;
-        ta.dispatchEvent(new Event('input', { bubbles: true }));
-        const preview = document.getElementById('dictPreview-' + recordingField);
-        if (preview) { preview.textContent = ''; preview.style.display = 'none'; }
-      } else if (interimText.trim()) {
-        const preview = document.getElementById('dictPreview-' + recordingField);
-        if (preview) {
-          preview.textContent = interimText.trim() + '\u2026';
-          preview.style.display = 'block';
-        }
-      }
-    };
-
-    rec.onerror = (event) => {
-      if (event.error === 'no-speech') return; // ignore
-      if (event.error === 'aborted')   return; // we caused it intentionally
-      console.log('[SpinePay] Speech error:', event.error);
-    };
-
-    rec.onend = () => {
-      console.log('[SpinePay] onend fired, isListening:', isListening, 'isRestarting:', isRestarting);
-      if (isListening && !isRestarting) {
-        isRestarting = true;
-        setTimeout(() => {
-          if (isListening) {
-            // Always use a FRESH instance — never restart the same object
-            activeRecognition = createRecognition();
-            try {
-              activeRecognition.start();
-            } catch (e) {
-              console.error('[SpinePay] Restart failed:', e);
-              isRestarting = false;
-            }
-          }
-        }, 500);
-      }
-    };
-
-    return rec;
-  }
-
-  function beginSpeech() {
-    if (!( window.SpeechRecognition || window.webkitSpeechRecognition)) {
-      toast('Speech recognition not supported in this browser.', 'error');
+      // Safety cap: 5 minutes
+      setTimeout(() => { if (isRecording) stopDictation(); }, 300000);
+      return true;
+    } catch (err) {
+      isRecording = false;
+      const msgs = {
+        NotAllowedError:  'Microphone access denied. Check system permissions.',
+        NotFoundError:    'No microphone found.',
+        NotReadableError: 'Microphone is in use by another application.'
+      };
+      toast(msgs[err.name] || 'Microphone error: ' + err.message, 'error');
       return false;
     }
-    if (isListening) return false; // already running
+  }
 
-    console.log('[SpinePay] SOAP field targets:', {
-      soapSubjective: !!document.getElementById('soapSubjective'),
-      soapObjective:  !!document.getElementById('soapObjective'),
-      soapAssessment: !!document.getElementById('soapAssessment'),
-      soapPlan:       !!document.getElementById('soapPlan')
-    });
-
-    isListening  = true;
-    isRestarting = false;
-    activeRecognition = createRecognition();
+  async function processRecording() {
+    stopLevelMeter();
+    showDictateStatus('TRANSCRIBING \u2014 please wait\u2026');
 
     try {
-      activeRecognition.start();
+      const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+
+      if (blob.size < 500) {
+        toast('No audio captured. Make sure your microphone is working.', 'warning');
+        resetDictateUI();
+        return;
+      }
+
+      // Check model load status — show download progress on first use
+      const status = await window.api.speech.status();
+      if (!status.loaded) {
+        showDictateStatus('Loading speech model\u2026 (first use — please wait)');
+        window.api.speech.onProgress((p) => {
+          if (p && p.status === 'progress' && p.total) {
+            const pct = Math.round((p.loaded / p.total) * 100);
+            showDictateStatus('Downloading model\u2026 ' + pct + '%');
+          }
+        });
+      }
+
+      // Decode and resample to 16 kHz mono (Whisper requirement)
+      const arrayBuffer = await blob.arrayBuffer();
+      const srcCtx = new AudioContext();
+      let srcBuffer;
+      try {
+        srcBuffer = await srcCtx.decodeAudioData(arrayBuffer);
+      } catch (_) {
+        toast('Could not decode audio. Please try again.', 'error');
+        await srcCtx.close();
+        resetDictateUI();
+        return;
+      }
+      await srcCtx.close();
+
+      const TARGET_HZ = 16000;
+      const offCtx = new OfflineAudioContext(1, Math.ceil(srcBuffer.duration * TARGET_HZ), TARGET_HZ);
+      const src    = offCtx.createBufferSource();
+      src.buffer   = srcBuffer;
+      src.connect(offCtx.destination);
+      src.start(0);
+      const resampled = await offCtx.startRendering();
+      const float32   = resampled.getChannelData(0);
+
+      const result = await window.api.speech.transcribe(float32);
+
+      if (!result.success) {
+        toast((result.error || '').includes('loading')
+          ? 'Model still loading — please wait a moment and try again.'
+          : 'Transcription failed: ' + result.error, 'error');
+        resetDictateUI();
+        return;
+      }
+
+      const text = (result.text || '').trim();
+      if (!text) {
+        toast('No speech detected. Speak clearly, then click the mic button to stop.', 'warning');
+        resetDictateUI();
+        return;
+      }
+
+      console.log('[SpinePay] Transcript:', text);
+
+      if (globalDictMode) {
+        distributeTranscript(text);
+      } else {
+        const ta = document.getElementById(recordingField);
+        if (ta) {
+          const existing = ta.value.trimEnd();
+          ta.value = existing ? existing + ' ' + text : text;
+          ta.scrollTop = ta.scrollHeight;
+          ta.dispatchEvent(new Event('input', { bubbles: true }));
+          console.log('[SpinePay] Written to', recordingField);
+        }
+      }
+
+      toast('Transcription complete', 'success');
     } catch (err) {
-      isListening = false;
-      toast('Could not start microphone: ' + err.message, 'error');
-      return false;
+      toast('Transcription error: ' + err.message, 'error');
+    } finally {
+      resetDictateUI();
     }
-
-    isRecording = true;
-    return true;
-  }
-
-  function clearInterimPreviews() {
-    document.querySelectorAll('[id^="dictPreview-"]').forEach(el => {
-      el.textContent = '';
-      el.style.display = 'none';
-    });
   }
 
   function getSelectedMicId() {
@@ -1403,18 +1398,15 @@ ${sec('P','Plan — Treatment Plan', note.plan)}
     }
   }
 
-  // Called when modal closes or save is triggered
+  // Called when mic button clicked again, modal closes, or save triggered
   function stopDictation() {
-    isListening  = false;
-    isRestarting = false;
-    isRecording  = false;
-    if (activeRecognition) {
-      try { activeRecognition.abort(); } catch (_) {}
-      activeRecognition = null;
+    isRecording = false;
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.stop(); // triggers onstop → processRecording
+    } else {
+      stopLevelMeter();
+      resetDictateUI();
     }
-    stopLevelMeter();
-    clearInterimPreviews();
-    resetDictateUI();
   }
 
   function resetDictateUI() {
