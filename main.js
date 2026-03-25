@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, session } = require('electron');
 const path = require('path');
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 const fs = require('fs');
 const { runMigrations } = require('./db-migrations');
 
@@ -23,8 +24,18 @@ function setSetting(key, value) {
   db.prepare('INSERT OR REPLACE INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)').run(key, safe);
 }
 
-function hashPassword(password) {
-  return crypto.createHash('sha256').update(password).digest('hex');
+// Verify a password against a stored hash, migrating SHA256 → bcrypt on success.
+// Returns true if the password is correct (and silently upgrades legacy hashes).
+function verifyAndMigrate(inputPassword, storedHash, userId) {
+  if (storedHash.length === 64 && /^[a-f0-9]+$/.test(storedHash)) {
+    // Legacy SHA256 hash — compare then upgrade to bcrypt
+    const sha256 = crypto.createHash('sha256').update(inputPassword).digest('hex');
+    if (sha256 !== storedHash) return false;
+    const upgraded = bcrypt.hashSync(inputPassword, 10);
+    try { db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(upgraded, userId); } catch (_) {}
+    return true;
+  }
+  return bcrypt.compareSync(inputPassword, storedHash);
 }
 
 function initDatabase() {
@@ -392,14 +403,14 @@ function initDatabase() {
   // Insert default users if not exists
   const adminExists = db.prepare('SELECT id FROM users WHERE username = ?').get('admin');
   if (!adminExists) {
-    db.prepare(`INSERT INTO users (username, password_hash, role, full_name) VALUES (?, ?, ?, ?)`).run(
-      'admin', hashPassword('admin123'), 'admin', 'Administrator'
+    db.prepare(`INSERT INTO users (username, password_hash, role, full_name, temp_password) VALUES (?, ?, ?, ?, 1)`).run(
+      'admin', bcrypt.hashSync('admin123', 10), 'admin', 'Administrator'
     );
   }
   const staffExists = db.prepare('SELECT id FROM users WHERE username = ?').get('staff');
   if (!staffExists) {
-    db.prepare(`INSERT INTO users (username, password_hash, role, full_name) VALUES (?, ?, ?, ?)`).run(
-      'staff', hashPassword('staff123'), 'staff', 'Front Desk Staff'
+    db.prepare(`INSERT INTO users (username, password_hash, role, full_name, temp_password) VALUES (?, ?, ?, ?, 1)`).run(
+      'staff', bcrypt.hashSync('staff123', 10), 'staff', 'Front Desk Staff'
     );
   }
 
@@ -566,8 +577,7 @@ ipcMain.handle('auth:login', (event, { username, password }) => {
     const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
     if (!user) return { success: false, error: 'Invalid username or password' };
     if (user.active === 0) return { success: false, error: 'Account deactivated. Contact your administrator.' };
-    const hash = hashPassword(password);
-    if (hash !== user.password_hash) {
+    if (!verifyAndMigrate(password, user.password_hash, user.id)) {
       try { db.prepare('INSERT INTO staff_login_history (staff_id, success) VALUES (?, 0)').run(user.id); } catch (_) {}
       return { success: false, error: 'Invalid username or password' };
     }
@@ -592,7 +602,7 @@ ipcMain.handle('staff:get-all', () => {
 ipcMain.handle('staff:create', (event, data) => {
   const { first_name, last_name, username, role, email, temp_password_plain } = data;
   const full_name = `${first_name} ${last_name}`;
-  const password_hash = hashPassword(temp_password_plain);
+  const password_hash = bcrypt.hashSync(temp_password_plain, 10);
   try {
     const result = db.prepare(`
       INSERT INTO users (username, password_hash, role, full_name, email, temp_password, active)
@@ -611,8 +621,12 @@ ipcMain.handle('staff:toggle-active', (event, { id, active }) => {
 });
 
 ipcMain.handle('staff:change-password', (event, { userId, newPassword }) => {
-  const hash = hashPassword(newPassword);
+  if (!newPassword || newPassword.length < 8) {
+    return { success: false, error: 'Password must be at least 8 characters' };
+  }
+  const hash = bcrypt.hashSync(newPassword, 10);
   db.prepare('UPDATE users SET password_hash = ?, temp_password = 0 WHERE id = ?').run(hash, userId);
+  console.log('[Auth] Password changed for user ID:', userId);
   return { success: true };
 });
 
@@ -1389,22 +1403,27 @@ ipcMain.handle('wizard:complete', (event, payload) => {
     const adminUsername = admin.username || 'admin';
     const adminPassword = admin.password || 'admin123';
     const adminFullName = admin.full_name || 'Administrator';
-    const adminHash = hashPassword(adminPassword);
+    const adminHash = bcrypt.hashSync(adminPassword, 10);
+    const now = new Date().toISOString();
     const adminExists = db.prepare('SELECT id FROM users WHERE username = ?').get(adminUsername);
     if (adminExists) {
-      db.prepare('UPDATE users SET password_hash=?, full_name=?, role=? WHERE username=?').run(adminHash, adminFullName, 'admin', adminUsername);
+      db.prepare('UPDATE users SET password_hash=?, full_name=?, role=?, temp_password=0, hipaa_signed=1, hipaa_signed_at=? WHERE username=?').run(
+        adminHash, adminFullName, 'admin', now, adminUsername
+      );
     } else {
-      db.prepare('INSERT INTO users (username, password_hash, role, full_name) VALUES (?,?,?,?)').run(adminUsername, adminHash, 'admin', adminFullName);
+      db.prepare('INSERT INTO users (username, password_hash, role, full_name, temp_password, hipaa_signed, hipaa_signed_at) VALUES (?,?,?,?,0,1,?)').run(
+        adminUsername, adminHash, 'admin', adminFullName, now
+      );
     }
 
-    // Create staff users
+    // Create staff users (with temp_password=1 so they go through onboarding on first login)
     if (Array.isArray(staff)) {
       for (const s of staff) {
         if (!s.username || !s.fullName) continue;
         const exists = db.prepare('SELECT id FROM users WHERE username = ?').get(s.username);
         if (!exists) {
-          db.prepare('INSERT INTO users (username, password_hash, role, full_name) VALUES (?,?,?,?)').run(
-            s.username, hashPassword('changeme123'), s.role || 'staff', s.fullName
+          db.prepare('INSERT INTO users (username, password_hash, role, full_name, temp_password) VALUES (?,?,?,?,1)').run(
+            s.username, bcrypt.hashSync('changeme123', 10), s.role || 'staff', s.fullName
           );
         }
       }
