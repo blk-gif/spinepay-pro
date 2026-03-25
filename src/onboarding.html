@@ -318,12 +318,23 @@
       if (!userData) { window.location.href = 'index.html'; return; }
       currentUser = JSON.parse(userData);
 
+      // If both flags are already cleared, nothing to do — go straight to app
+      if (!currentUser.temp_password && currentUser.hipaa_signed) {
+        window.location.href = 'app.html';
+        return;
+      }
+
       // Personalise step 1 heading
       const firstName = currentUser.full_name.split(' ')[0];
       document.getElementById('step1Welcome').textContent = `Welcome, ${firstName}!`;
 
       // Set HIPAA date
       document.getElementById('hipaaDate').value = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+      // If password already changed, skip straight to HIPAA step
+      if (!currentUser.temp_password) {
+        goToStep(2);
+      }
 
       // Password hints live update
       document.getElementById('newPassword').addEventListener('input', updateHints);

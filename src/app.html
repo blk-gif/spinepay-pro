@@ -53,7 +53,7 @@
     <span>Intake Forms</span>
   </div>
 
-  <div class="nav-section-label">Billing</div>
+  <div class="nav-section-label admin-only">Billing</div>
 
   <div class="nav-item admin-only" data-module="billing" id="nav-billing">
     <i class="fa-solid fa-file-invoice-dollar"></i>
@@ -103,12 +103,12 @@
     <span>Time Clock</span>
   </div>
 
-  <div class="nav-item admin-only" data-module="reminders" id="nav-reminders">
+  <div class="nav-item" data-module="reminders" id="nav-reminders">
     <i class="fa-solid fa-bell"></i>
     <span>Reminders</span>
   </div>
 
-  <div class="nav-section-label">System</div>
+  <div class="nav-section-label admin-only">System</div>
 
   <div class="nav-item admin-only" data-module="staff" id="nav-staff">
     <i class="fa-solid fa-user-gear"></i>
@@ -137,24 +137,6 @@
 
     <!-- ── MAIN AREA ───────────────────────────────────────────── -->
     <div class="main-area">
-
-      <!-- UPDATE NOTIFICATION BANNER -->
-      <div id="updateBanner" style="display:none;background:#D4AF37;color:#000;padding:10px 20px;font-weight:600;font-size:0.9rem;display:flex;align-items:center;justify-content:space-between;gap:12px;">
-        <span id="updateBannerMsg">A new version of SpinePay Pro is available.</span>
-        <button id="updateInstallBtn" onclick="window.api.updater.installNow()" style="background:#000;color:#D4AF37;border:none;padding:6px 16px;border-radius:4px;font-weight:700;cursor:pointer;">Restart &amp; Update</button>
-      </div>
-      <script>
-        if (window.api && window.api.updater) {
-          window.api.updater.onUpdateAvailable(() => {
-            const b = document.getElementById('updateBanner');
-            if (b) { b.style.display = 'flex'; document.getElementById('updateBannerMsg').textContent = 'A new version of SpinePay Pro is available and downloading...'; }
-          });
-          window.api.updater.onUpdateDownloaded(() => {
-            const b = document.getElementById('updateBanner');
-            if (b) { b.style.display = 'flex'; document.getElementById('updateBannerMsg').textContent = 'Update downloaded — restart to install.'; document.getElementById('updateInstallBtn').style.display = ''; }
-          });
-        }
-      </script>
 
       <!-- TOP BAR -->
       <header class="topbar">

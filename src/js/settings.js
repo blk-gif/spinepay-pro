@@ -80,6 +80,44 @@ window.Settings = (() => {
     staffEl.innerHTML = buildStaffSectionHTML();
     view.appendChild(staffEl);
 
+    // Append updates section
+    const updatesEl = document.createElement('div');
+    updatesEl.style.cssText = 'max-width:620px;margin:24px auto 0;';
+    updatesEl.innerHTML = `
+      <div class="card card-gold">
+        <div class="card-header">
+          <div class="card-title"><i class="fa-solid fa-arrows-rotate"></i> Software Updates</div>
+        </div>
+        <div class="card-body">
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;">
+            <span id="updateStatusDot" style="width:12px;height:12px;border-radius:50%;background:#2ecc71;flex-shrink:0;"></span>
+            <span id="updateStatusMsg" style="font-size:13px;color:var(--text-muted);">SpinePay Pro is up to date.</span>
+          </div>
+          <button id="updateInstallBtn" style="display:none;" class="btn btn-primary btn-sm" onclick="window.api.updater.installNow()">
+            <i class="fa-solid fa-rotate"></i> Restart &amp; Install Update
+          </button>
+        </div>
+      </div>`;
+    view.appendChild(updatesEl);
+
+    // Wire up updater events
+    if (window.api && window.api.updater) {
+      window.api.updater.onUpdateAvailable(() => {
+        const dot = document.getElementById('updateStatusDot');
+        const msg = document.getElementById('updateStatusMsg');
+        if (dot) dot.style.background = '#f59e0b';
+        if (msg) msg.textContent = 'A new version is available and downloading…';
+      });
+      window.api.updater.onUpdateDownloaded(() => {
+        const dot = document.getElementById('updateStatusDot');
+        const msg = document.getElementById('updateStatusMsg');
+        const btn = document.getElementById('updateInstallBtn');
+        if (dot) dot.style.background = '#d4af37';
+        if (msg) msg.textContent = 'Update downloaded — restart to install.';
+        if (btn) btn.style.display = 'inline-flex';
+      });
+    }
+
     loadSettings();
     loadBackupStatus();
     loadStaffAccounts();

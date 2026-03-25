@@ -584,7 +584,14 @@ ipcMain.handle('auth:login', (event, { username, password }) => {
     try { db.prepare('UPDATE users SET last_login = datetime("now") WHERE id = ?').run(user.id); } catch (_) {}
     try { db.prepare('INSERT INTO staff_login_history (staff_id, success) VALUES (?, 1)').run(user.id); } catch (_) {}
     currentUser = { id: user.id, username: user.username, role: user.role, full_name: user.full_name, email: user.email || null };
-    return { success: true, user: currentUser, requiresOnboarding: user.temp_password === 1 };
+    // Include onboarding flags so the renderer can start at the right step
+    const sessionUser = {
+      ...currentUser,
+      temp_password: user.temp_password || 0,
+      hipaa_signed:  user.hipaa_signed  || 0
+    };
+    const requiresOnboarding = user.temp_password === 1 || user.hipaa_signed === 0;
+    return { success: true, user: sessionUser, requiresOnboarding };
   } catch (err) {
     return { success: false, error: err.message };
   }

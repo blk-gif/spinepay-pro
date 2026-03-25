@@ -178,6 +178,20 @@ function runMigrations(db) {
   for (const sql of columns) {
     try { db.exec(sql); } catch (_) { /* column already exists — skip */ }
   }
+
+  // ── One-time data fixes ──────────────────────────────────────────────────────
+
+  // FIX: Remove duplicate staff1 account (inactive legacy entry)
+  try { db.prepare("DELETE FROM users WHERE username = 'staff1'").run(); } catch (_) {}
+
+  // FIX: Mark all admin accounts as HIPAA-signed and clear temp_password flag.
+  // Admins set up the system and do not need to complete the staff onboarding flow.
+  try {
+    db.prepare(`
+      UPDATE users SET hipaa_signed = 1, hipaa_signed_at = datetime('now'), temp_password = 0
+      WHERE role = 'admin' AND (hipaa_signed = 0 OR hipaa_signed IS NULL)
+    `).run();
+  } catch (_) {}
 }
 
 module.exports = { runMigrations };

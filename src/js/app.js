@@ -143,7 +143,7 @@ window.App = (() => {
   // ── Navigation ─────────────────────────────────────────────────────────────
   function navigateTo(module) {
     // Role-based access check
-    if (currentUser && currentUser.role !== 'admin' && STAFF_RESTRICTED.has(module)) {
+    if (currentUser && currentUser.role.toLowerCase() !== 'admin' && STAFF_RESTRICTED.has(module)) {
       document.querySelectorAll('.module-view').forEach(el => el.classList.remove('active'));
       const viewEl = document.getElementById(`view-${module}`);
       if (viewEl) {
@@ -299,7 +299,7 @@ window.App = (() => {
   async function loadDashboard() {
     try {
       const today = todayString();
-      const isAdmin = currentUser && currentUser.role === 'admin';
+      const isAdmin = currentUser && currentUser.role.toLowerCase() === 'admin';
 
       // Load stats in parallel
       const [patients, appointments, claims] = await Promise.all([
@@ -462,9 +462,10 @@ window.App = (() => {
     if (!checkAuth()) return;
     initUserUI();
 
-    // Hide admin-only nav items from staff
-    if (currentUser.role !== 'admin') {
-      document.querySelectorAll('.nav-item.admin-only').forEach(el => el.style.display = 'none');
+    // Hide admin-only nav items (and section labels) from non-admin users
+    const isAdmin = currentUser.role.toLowerCase() === 'admin';
+    if (!isAdmin) {
+      document.querySelectorAll('.admin-only').forEach(el => el.style.display = 'none');
     }
 
     startClock();
