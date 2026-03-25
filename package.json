@@ -40,7 +40,8 @@
       "installerHeaderIcon": "assets/icon.ico",
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "SpinePay Pro"
+      "shortcutName": "SpinePay Pro",
+      "menuCategory": "Walden Bailey Chiropractic"
     },
     "files": [
       "src/**/*",

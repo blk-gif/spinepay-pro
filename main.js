@@ -1362,8 +1362,14 @@ function cleanOldBackups(folder) {
   } catch (_) {}
 }
 
+const DEFAULT_BACKUP_FOLDER = 'C:\\SpinePayBackups';
+
+function getEffectiveBackupFolder() {
+  return getSetting('BACKUP_FOLDER') || DEFAULT_BACKUP_FOLDER;
+}
+
 async function runBackup() {
-  const folder = getSetting('BACKUP_FOLDER');
+  const folder = getEffectiveBackupFolder();
   if (!folder) { console.log('[Backup] No backup folder configured, skipping.'); return { success: false, error: 'No backup folder set' }; }
   if (!fs.existsSync(folder)) { fs.mkdirSync(folder, { recursive: true }); }
 
@@ -1401,11 +1407,11 @@ ipcMain.handle('backup:get-status', () => ({
   lastBackupAt:   getSetting('LAST_BACKUP_AT'),
   lastBackupFile: getSetting('LAST_BACKUP_FILE'),
   lastBackupSize: getSetting('LAST_BACKUP_SIZE'),
-  backupFolder:   getSetting('BACKUP_FOLDER')
+  backupFolder:   getEffectiveBackupFolder()
 }));
 
 ipcMain.handle('backup:list', () => {
-  const folder = getSetting('BACKUP_FOLDER');
+  const folder = getEffectiveBackupFolder();
   if (!folder || !fs.existsSync(folder)) return [];
   return fs.readdirSync(folder)
     .filter(f => f.startsWith('spinepay-backup-') && f.endsWith('.zip'))
@@ -1528,9 +1534,53 @@ ipcMain.handle('transcribe-audio', async (event, float32Array) => {
   }
 });
 
+// ── START MENU + DESKTOP SHORTCUTS (dev mode, one-time) ──────────────────────
+function createShortcut(shortcutPath, targetPath, description) {
+  if (fs.existsSync(shortcutPath)) return;
+  const escaped = (s) => s.replace(/\\/g, '\\\\').replace(/'/g, "''");
+  const ps = `
+    $ws = New-Object -ComObject WScript.Shell
+    $sc = $ws.CreateShortcut('${escaped(shortcutPath)}')
+    $sc.TargetPath = '${escaped(targetPath)}'
+    $sc.WorkingDirectory = '${escaped(path.dirname(targetPath))}'
+    $sc.Description = '${description}'
+    $sc.Save()
+  `;
+  require('child_process').spawn('powershell.exe', ['-ExecutionPolicy', 'Bypass', '-Command', ps]);
+  console.log('[Shortcut] Created:', shortcutPath);
+}
+
+function createDevShortcuts() {
+  // Only create shortcuts when running from source (not packaged installer)
+  if (app.isPackaged) return;
+
+  const target = process.execPath;
+
+  // Start Menu
+  const startMenuDir = path.join(
+    process.env.APPDATA,
+    'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Walden Bailey Chiropractic'
+  );
+  if (!fs.existsSync(startMenuDir)) fs.mkdirSync(startMenuDir, { recursive: true });
+  createShortcut(
+    path.join(startMenuDir, 'SpinePay Pro.lnk'),
+    target,
+    'SpinePay Pro - Practice Management'
+  );
+
+  // Desktop
+  const desktopPath = path.join(process.env.USERPROFILE, 'Desktop');
+  createShortcut(
+    path.join(desktopPath, 'SpinePay Pro.lnk'),
+    target,
+    'SpinePay Pro - Practice Management'
+  );
+}
+
 // APP LIFECYCLE
 app.whenReady().then(() => {
   initDatabase();
+  createDevShortcuts();
   createWindow();
   // Preload Whisper model in background so first dictation has no delay
   setTimeout(() => getWhisperPipeline().catch(() => {}), 3000);
