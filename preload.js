@@ -168,5 +168,14 @@ contextBridge.exposeInMainWorld('api', {
     onUpdateAvailable: (cb) => ipcRenderer.on('update-available', cb),
     onUpdateDownloaded: (cb) => ipcRenderer.on('update-downloaded', cb),
     installNow: () => ipcRenderer.invoke('updater:install-now')
+  },
+  staff: {
+    getAll:          ()               => ipcRenderer.invoke('staff:get-all'),
+    create:          (data)           => ipcRenderer.invoke('staff:create', data),
+    toggleActive:    (id, active)     => ipcRenderer.invoke('staff:toggle-active', { id, active }),
+    changePassword:  (userId, pwd)    => ipcRenderer.invoke('staff:change-password', { userId, newPassword: pwd }),
+    hipaaSign:       (staffId, sig)   => ipcRenderer.invoke('staff:hipaa-sign', { staffId, signature: sig }),
+    getLoginHistory: (staffId)        => ipcRenderer.invoke('staff:get-login-history', staffId),
+    sendWelcomeEmail:(data)           => ipcRenderer.invoke('staff:send-welcome-email', data)
   }
 });

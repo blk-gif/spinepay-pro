@@ -56,6 +56,23 @@ function runMigrations(db) {
       active     INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS staff_hipaa (
+      id             INTEGER PRIMARY KEY AUTOINCREMENT,
+      staff_id       INTEGER NOT NULL,
+      signature      TEXT NOT NULL,
+      agreed_at      TEXT NOT NULL,
+      ip_address     TEXT,
+      policy_version TEXT DEFAULT '1.0'
+    );
+
+    CREATE TABLE IF NOT EXISTS staff_login_history (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      staff_id     INTEGER NOT NULL,
+      logged_in_at TEXT DEFAULT (datetime('now')),
+      ip_address   TEXT,
+      success      INTEGER DEFAULT 1
+    );
   `);
 
   // ── Column migrations ─────────────────────────────────────────────────────────
@@ -142,6 +159,20 @@ function runMigrations(db) {
     // ── appointments ────────────────────────────────────────────────────────────
     'ALTER TABLE appointments ADD COLUMN room TEXT',
     'ALTER TABLE appointments ADD COLUMN confirmed INTEGER DEFAULT 0',
+
+    // ── users (auth + staff accounts) ───────────────────────────────────────────
+    'ALTER TABLE users ADD COLUMN email TEXT',
+    'ALTER TABLE users ADD COLUMN temp_password INTEGER DEFAULT 0',
+    'ALTER TABLE users ADD COLUMN last_login TEXT',
+    'ALTER TABLE users ADD COLUMN hipaa_signed INTEGER DEFAULT 0',
+    'ALTER TABLE users ADD COLUMN hipaa_signed_at TEXT',
+    'ALTER TABLE users ADD COLUMN active INTEGER DEFAULT 1',
+
+    // ── staff (HR table) ─────────────────────────────────────────────────────────
+    'ALTER TABLE staff ADD COLUMN temp_password INTEGER DEFAULT 1',
+    'ALTER TABLE staff ADD COLUMN last_login TEXT',
+    'ALTER TABLE staff ADD COLUMN hipaa_signed INTEGER DEFAULT 0',
+    'ALTER TABLE staff ADD COLUMN hipaa_signed_at TEXT',
   ];
 
   for (const sql of columns) {

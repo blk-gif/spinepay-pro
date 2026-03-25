@@ -137,8 +137,30 @@ window.App = (() => {
     });
   }
 
+  // Modules staff role cannot access
+  const STAFF_RESTRICTED = new Set(['settings', 'reports', 'billing', 'eob', 'staff']);
+
   // ── Navigation ─────────────────────────────────────────────────────────────
   function navigateTo(module) {
+    // Role-based access check
+    if (currentUser && currentUser.role !== 'admin' && STAFF_RESTRICTED.has(module)) {
+      document.querySelectorAll('.module-view').forEach(el => el.classList.remove('active'));
+      const viewEl = document.getElementById(`view-${module}`);
+      if (viewEl) {
+        viewEl.innerHTML = `
+          <div style="display:flex;align-items:center;justify-content:center;height:100%;min-height:400px;">
+            <div style="text-align:center;padding:40px;">
+              <i class="fa-solid fa-shield-halved" style="font-size:3.5rem;color:var(--gold);opacity:.4;margin-bottom:20px;display:block;"></i>
+              <h2 style="color:var(--text-secondary);font-size:1.3rem;font-weight:700;margin-bottom:8px;">Access Denied</h2>
+              <p style="color:var(--text-muted);font-size:14px;">Admin permission required to access this section.</p>
+            </div>
+          </div>`;
+        viewEl.classList.add('active');
+      }
+      document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+      return;
+    }
+
     // Deactivate all nav items
     document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
 
@@ -170,6 +192,7 @@ window.App = (() => {
       referrals:  'Referrals',
       timeclock:  'Time Clock',
       reminders:  'Reminders',
+      staff:      'Staff Management',
       settings:   'Settings'
     };
 
@@ -190,6 +213,7 @@ window.App = (() => {
       case 'referrals':   window.Referrals?.render();       break;
       case 'timeclock':   window.TimeClock?.render();       break;
       case 'reminders':   window.Reminders?.render();       break;
+      case 'staff':       window.Staff?.render();           break;
       case 'settings':    window.Settings?.render();        break;
     }
   }

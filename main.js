@@ -565,13 +565,111 @@ ipcMain.handle('auth:login', (event, { username, password }) => {
   try {
     const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
     if (!user) return { success: false, error: 'Invalid username or password' };
+    if (user.active === 0) return { success: false, error: 'Account deactivated. Contact your administrator.' };
     const hash = hashPassword(password);
-    if (hash !== user.password_hash) return { success: false, error: 'Invalid username or password' };
-    currentUser = { id: user.id, username: user.username, role: user.role, full_name: user.full_name };
-    return { success: true, user: currentUser };
+    if (hash !== user.password_hash) {
+      try { db.prepare('INSERT INTO staff_login_history (staff_id, success) VALUES (?, 0)').run(user.id); } catch (_) {}
+      return { success: false, error: 'Invalid username or password' };
+    }
+    try { db.prepare('UPDATE users SET last_login = datetime("now") WHERE id = ?').run(user.id); } catch (_) {}
+    try { db.prepare('INSERT INTO staff_login_history (staff_id, success) VALUES (?, 1)').run(user.id); } catch (_) {}
+    currentUser = { id: user.id, username: user.username, role: user.role, full_name: user.full_name, email: user.email || null };
+    return { success: true, user: currentUser, requiresOnboarding: user.temp_password === 1 };
   } catch (err) {
     return { success: false, error: err.message };
   }
+});
+
+// STAFF MANAGEMENT
+ipcMain.handle('staff:get-all', () => {
+  return db.prepare(`
+    SELECT id, username, role, full_name, email, active, last_login,
+           hipaa_signed, hipaa_signed_at, temp_password, created_at
+    FROM users ORDER BY full_name
+  `).all();
+});
+
+ipcMain.handle('staff:create', (event, data) => {
+  const { first_name, last_name, username, role, email, temp_password_plain } = data;
+  const full_name = `${first_name} ${last_name}`;
+  const password_hash = hashPassword(temp_password_plain);
+  try {
+    const result = db.prepare(`
+      INSERT INTO users (username, password_hash, role, full_name, email, temp_password, active)
+      VALUES (?, ?, ?, ?, ?, 1, 1)
+    `).run(username, password_hash, role, full_name, email || null);
+    return { success: true, id: result.lastInsertRowid };
+  } catch (err) {
+    if (err.message.includes('UNIQUE')) return { success: false, error: 'Username already exists' };
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('staff:toggle-active', (event, { id, active }) => {
+  db.prepare('UPDATE users SET active = ? WHERE id = ?').run(active ? 1 : 0, id);
+  return { success: true };
+});
+
+ipcMain.handle('staff:change-password', (event, { userId, newPassword }) => {
+  const hash = hashPassword(newPassword);
+  db.prepare('UPDATE users SET password_hash = ?, temp_password = 0 WHERE id = ?').run(hash, userId);
+  return { success: true };
+});
+
+ipcMain.handle('staff:hipaa-sign', (event, { staffId, signature }) => {
+  const now = new Date().toISOString();
+  try { db.prepare(`INSERT INTO staff_hipaa (staff_id, signature, agreed_at, policy_version) VALUES (?, ?, ?, '1.0')`).run(staffId, signature, now); } catch (_) {}
+  try { db.prepare('UPDATE users SET hipaa_signed = 1, hipaa_signed_at = ? WHERE id = ?').run(now, staffId); } catch (_) {}
+  return { success: true };
+});
+
+ipcMain.handle('staff:get-login-history', (event, staffId) => {
+  return db.prepare('SELECT * FROM staff_login_history WHERE staff_id = ? ORDER BY logged_in_at DESC LIMIT 50').all(staffId);
+});
+
+ipcMain.handle('staff:send-welcome-email', (event, { name, username, email, tempPassword }) => {
+  return new Promise((resolve) => {
+    try {
+      const https = require('https');
+      const bodyText = [
+        `Dear ${name},`,
+        '',
+        'Welcome to SpinePay Pro at Walden Bailey Chiropractic!',
+        '',
+        'Your account has been created. Here are your login credentials:',
+        '',
+        `Username: ${username}`,
+        `Temporary Password: ${tempPassword}`,
+        '',
+        'Please log in at your workstation and you will be prompted to:',
+        '  1. Set a new password',
+        '  2. Review and sign the HIPAA Privacy & Security Policy',
+        '  3. Confirm your role and access permissions',
+        '',
+        'IMPORTANT: This is a temporary password. You must change it on first login.',
+        '',
+        'Walden Bailey Chiropractic',
+        '1086 Walden Ave Suite 1, Buffalo, NY 14211',
+        '(716) 893-9200'
+      ].join('\n');
+      const payload = JSON.stringify({
+        to: email,
+        subject: 'Welcome to SpinePay Pro \u2014 Walden Bailey Chiropractic',
+        text: bodyText
+      });
+      const req = https.request({
+        hostname: 'walden-chiropractic.onrender.com',
+        path: '/api/send-email',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) }
+      }, (res) => resolve({ success: res.statusCode < 400 }));
+      req.on('error', (err) => resolve({ success: false, error: err.message }));
+      req.write(payload);
+      req.end();
+    } catch (err) {
+      resolve({ success: false, error: err.message });
+    }
+  });
 });
 
 ipcMain.handle('auth:logout', () => {

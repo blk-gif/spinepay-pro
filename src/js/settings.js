@@ -74,11 +74,28 @@ window.Settings = (() => {
         </div>
       </div>
     `;
+    // Append staff accounts section
+    const staffEl = document.createElement('div');
+    staffEl.id = 'staffAccountsWrapper';
+    staffEl.innerHTML = buildStaffSectionHTML();
+    view.appendChild(staffEl);
+
     loadSettings();
     loadBackupStatus();
+    loadStaffAccounts();
     document.getElementById('settingsSaveBtn').addEventListener('click', save);
     document.getElementById('backupRunNowBtn').addEventListener('click', runBackupNow);
     document.getElementById('backupChangeFolderBtn').addEventListener('click', changeBackupFolder);
+    document.getElementById('addStaffBtn').addEventListener('click', openAddStaffModal);
+    document.getElementById('addStaffModalClose').addEventListener('click', closeAddStaffModal);
+    document.getElementById('addStaffCancelBtn').addEventListener('click', closeAddStaffModal);
+    document.getElementById('addStaffSaveBtn').addEventListener('click', saveNewStaff);
+    document.getElementById('genPasswordBtn').addEventListener('click', () => {
+      document.getElementById('staffTempPassword').value = generateTempPassword();
+    });
+    document.getElementById('addStaffModal').addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) closeAddStaffModal();
+    });
   }
 
   async function loadSettings() {
@@ -197,5 +214,245 @@ window.Settings = (() => {
     }
   }
 
-  return { render };
+  // ── Staff Accounts ──────────────────────────────────────────────────────────
+
+  function generateTempPassword() {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789@#!';
+    let p = '';
+    for (let i = 0; i < 12; i++) p += chars[Math.floor(Math.random() * chars.length)];
+    return p;
+  }
+
+  function buildStaffSectionHTML() {
+    return `
+      <div style="max-width:900px;margin:24px auto 0;">
+        <div class="card card-gold">
+          <div class="card-header" style="display:flex;align-items:center;justify-content:space-between;">
+            <div class="card-title"><i class="fa-solid fa-users-gear"></i> Staff Accounts</div>
+            <button class="btn btn-primary btn-sm" id="addStaffBtn">
+              <i class="fa-solid fa-user-plus"></i> Add Staff Member
+            </button>
+          </div>
+          <div class="card-body" style="padding:0;">
+            <div id="staffAccountsTable" style="font-size:13px;">
+              <div style="padding:20px;color:var(--text-muted);">Loading staff accounts…</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Add Staff Modal -->
+      <div class="modal-overlay" id="addStaffModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.75);align-items:center;justify-content:center;">
+        <div class="modal" style="width:520px;max-width:95vw;">
+          <div class="modal-header">
+            <div class="modal-title"><i class="fa-solid fa-user-plus"></i> Add Staff Member</div>
+            <button class="modal-close" id="addStaffModalClose">&times;</button>
+          </div>
+          <div class="modal-body">
+            <div class="form-grid form-grid-2">
+              <div class="form-group">
+                <label class="form-label">First Name</label>
+                <input type="text" class="form-control" id="staffFirstName" placeholder="First name" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Last Name</label>
+                <input type="text" class="form-control" id="staffLastName" placeholder="Last name" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Username</label>
+                <input type="text" class="form-control" id="staffUsername" placeholder="login username" autocomplete="off" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">Role</label>
+                <select class="form-control" id="staffRole">
+                  <option value="staff">Staff</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              <div class="form-group" style="grid-column:1/-1;">
+                <label class="form-label">Email Address</label>
+                <input type="email" class="form-control" id="staffEmail" placeholder="staff@example.com" />
+              </div>
+              <div class="form-group" style="grid-column:1/-1;">
+                <label class="form-label">Temporary Password</label>
+                <div style="display:flex;gap:8px;">
+                  <input type="text" class="form-control" id="staffTempPassword" readonly
+                    style="font-family:monospace;letter-spacing:2px;flex:1;" />
+                  <button class="btn btn-secondary btn-sm" id="genPasswordBtn" type="button" style="white-space:nowrap;">
+                    <i class="fa-solid fa-rotate"></i> Generate
+                  </button>
+                </div>
+                <div style="font-size:11px;color:var(--text-muted);margin-top:4px;">
+                  <i class="fa-solid fa-circle-info"></i> Staff member must change this on first login.
+                </div>
+              </div>
+              <div class="form-group" style="grid-column:1/-1;">
+                <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                  <input type="checkbox" id="staffSendEmail" checked
+                    style="width:16px;height:16px;accent-color:var(--gold);" />
+                  <span style="font-size:13px;color:var(--text-secondary);">
+                    Send welcome email with login instructions and HIPAA acknowledgment link
+                  </span>
+                </label>
+              </div>
+            </div>
+            <div id="addStaffError" style="display:none;background:rgba(231,76,60,.12);border:1px solid rgba(231,76,60,.3);border-radius:6px;padding:8px 12px;color:#ff6b6b;font-size:13px;margin-top:8px;"></div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" id="addStaffCancelBtn">Cancel</button>
+            <button class="btn btn-primary" id="addStaffSaveBtn">
+              <i class="fa-solid fa-user-plus"></i> Create Account
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function openAddStaffModal() {
+    document.getElementById('staffFirstName').value = '';
+    document.getElementById('staffLastName').value = '';
+    document.getElementById('staffUsername').value = '';
+    document.getElementById('staffRole').value = 'staff';
+    document.getElementById('staffEmail').value = '';
+    document.getElementById('staffTempPassword').value = generateTempPassword();
+    document.getElementById('staffSendEmail').checked = true;
+    document.getElementById('addStaffError').style.display = 'none';
+    const modal = document.getElementById('addStaffModal');
+    modal.style.display = 'flex';
+  }
+
+  function closeAddStaffModal() {
+    document.getElementById('addStaffModal').style.display = 'none';
+  }
+
+  async function saveNewStaff() {
+    const firstName  = document.getElementById('staffFirstName').value.trim();
+    const lastName   = document.getElementById('staffLastName').value.trim();
+    const username   = document.getElementById('staffUsername').value.trim();
+    const role       = document.getElementById('staffRole').value;
+    const email      = document.getElementById('staffEmail').value.trim();
+    const tempPwd    = document.getElementById('staffTempPassword').value;
+    const sendEmail  = document.getElementById('staffSendEmail').checked;
+    const errEl      = document.getElementById('addStaffError');
+
+    if (!firstName || !lastName) { errEl.textContent = 'First and last name are required.'; errEl.style.display = 'block'; return; }
+    if (!username) { errEl.textContent = 'Username is required.'; errEl.style.display = 'block'; return; }
+    if (!tempPwd) { errEl.textContent = 'Please generate a temporary password.'; errEl.style.display = 'block'; return; }
+
+    const saveBtn = document.getElementById('addStaffSaveBtn');
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Creating…';
+    errEl.style.display = 'none';
+
+    try {
+      const result = await window.api.staff.create({ first_name: firstName, last_name: lastName, username, role, email, temp_password_plain: tempPwd });
+      if (!result.success) {
+        errEl.textContent = result.error || 'Failed to create account.';
+        errEl.style.display = 'block';
+        return;
+      }
+
+      if (sendEmail && email) {
+        await window.api.staff.sendWelcomeEmail({ name: `${firstName} ${lastName}`, username, email, tempPassword: tempPwd });
+      }
+
+      closeAddStaffModal();
+      toast(`Staff account created for ${firstName} ${lastName}`, 'success');
+      loadStaffAccounts();
+    } catch (err) {
+      errEl.textContent = err.message;
+      errEl.style.display = 'block';
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = '<i class="fa-solid fa-user-plus"></i> Create Account';
+    }
+  }
+
+  async function loadStaffAccounts() {
+    const container = document.getElementById('staffAccountsTable');
+    if (!container) return;
+    try {
+      const staff = await window.api.staff.getAll();
+      if (!staff.length) {
+        container.innerHTML = '<div style="padding:20px;color:var(--text-muted);">No staff accounts found.</div>';
+        return;
+      }
+      container.innerHTML = `
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr style="border-bottom:1px solid rgba(255,215,0,.15);">
+              <th style="padding:10px 16px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--gold);">Name</th>
+              <th style="padding:10px 16px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--gold);">Username</th>
+              <th style="padding:10px 16px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--gold);">Role</th>
+              <th style="padding:10px 16px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--gold);">Last Login</th>
+              <th style="padding:10px 16px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--gold);">HIPAA</th>
+              <th style="padding:10px 16px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--gold);">Status</th>
+              <th style="padding:10px 16px;text-align:right;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;color:var(--gold);">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${staff.map(s => `
+              <tr style="border-bottom:1px solid rgba(255,255,255,.05);">
+                <td style="padding:10px 16px;font-weight:600;color:var(--text-primary);">${s.full_name}</td>
+                <td style="padding:10px 16px;color:var(--text-muted);font-family:monospace;">${s.username}</td>
+                <td style="padding:10px 16px;">
+                  <span style="padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;
+                    background:${s.role === 'admin' ? 'rgba(212,175,55,.15)' : 'rgba(52,152,219,.15)'};
+                    color:${s.role === 'admin' ? 'var(--gold)' : '#3498db'};">
+                    ${s.role}
+                  </span>
+                </td>
+                <td style="padding:10px 16px;color:var(--text-muted);font-size:12px;">
+                  ${s.last_login ? new Date(s.last_login).toLocaleDateString() : 'Never'}
+                </td>
+                <td style="padding:10px 16px;">
+                  <span style="padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;
+                    background:${s.hipaa_signed ? 'rgba(46,204,113,.12)' : 'rgba(231,76,60,.12)'};
+                    color:${s.hipaa_signed ? '#2ecc71' : '#e74c3c'};">
+                    ${s.hipaa_signed ? 'Signed' : 'Pending'}
+                  </span>
+                </td>
+                <td style="padding:10px 16px;">
+                  <span style="padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;
+                    background:${s.active !== 0 ? 'rgba(46,204,113,.12)' : 'rgba(100,100,100,.15)'};
+                    color:${s.active !== 0 ? '#2ecc71' : '#888'};">
+                    ${s.active !== 0 ? 'Active' : 'Inactive'}
+                  </span>
+                </td>
+                <td style="padding:10px 16px;text-align:right;">
+                  <button class="btn btn-sm" onclick="window.Settings._toggleStaff(${s.id}, ${s.active !== 0 ? 0 : 1}, '${s.full_name.replace(/'/g, "\\'")}')"
+                    style="padding:3px 10px;font-size:11px;background:${s.active !== 0 ? 'rgba(231,76,60,.15)' : 'rgba(46,204,113,.15)'};
+                      color:${s.active !== 0 ? '#e74c3c' : '#2ecc71'};border:1px solid ${s.active !== 0 ? 'rgba(231,76,60,.3)' : 'rgba(46,204,113,.3)'};border-radius:4px;cursor:pointer;">
+                    ${s.active !== 0 ? 'Deactivate' : 'Reactivate'}
+                  </button>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>`;
+    } catch (err) {
+      if (container) container.innerHTML = `<div style="padding:20px;color:#e74c3c;">Error loading staff: ${err.message}</div>`;
+    }
+  }
+
+  async function toggleStaff(id, newActive, name) {
+    if (newActive === 0) {
+      const ok = await window.App.confirm(
+        `Are you sure you want to deactivate ${name}? They will immediately lose access to SpinePay Pro.`,
+        'Deactivate',
+        'btn-danger'
+      );
+      if (!ok) return;
+    }
+    try {
+      await window.api.staff.toggleActive(id, newActive === 1);
+      toast(`${name} has been ${newActive ? 'reactivated' : 'deactivated'}`, newActive ? 'success' : 'warning');
+      loadStaffAccounts();
+    } catch (err) {
+      toast('Failed to update staff status', 'error');
+    }
+  }
+
+  return { render, _toggleStaff: toggleStaff };
 })();

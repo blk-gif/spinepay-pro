@@ -79,7 +79,7 @@ document.addEventListener('DOMContentLoaded', () => {
         loginBtn.disabled = true;
 
         setTimeout(() => {
-          window.location.href = 'app.html';
+          window.location.href = result.requiresOnboarding ? 'onboarding.html' : 'app.html';
         }, 500);
       } else {
         showError(result.error || 'Invalid username or password.');

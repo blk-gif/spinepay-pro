@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SpinePay Pro — Welcome</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --gold: #d4af37; --gold-light: #f0c040; --gold-dark: #a08020;
+      --bg-deep: #0a0a0a; --bg-dark: #111111; --bg-card: #1a1a1a;
+      --bg-input: #222222; --text-primary: #ffffff; --text-secondary: #e0e0e0;
+      --text-muted: #a0a0a0; --danger: #e74c3c; --success: #2ecc71; --border: #2a2a2a;
+    }
+    html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--bg-deep); color: var(--text-primary); overflow: hidden; }
+
+    .ob-bg {
+      position: fixed; inset: 0;
+      background: radial-gradient(ellipse at 20% 50%, rgba(212,175,55,0.08) 0%, transparent 60%),
+                  radial-gradient(ellipse at 80% 20%, rgba(212,175,55,0.05) 0%, transparent 50%),
+                  linear-gradient(135deg, #0a0a0a 0%, #111111 50%, #0d0d0d 100%);
+    }
+    .ob-bg::before {
+      content: ''; position: absolute; inset: 0;
+      background-image: linear-gradient(rgba(212,175,55,0.04) 1px, transparent 1px),
+                        linear-gradient(90deg, rgba(212,175,55,0.04) 1px, transparent 1px);
+      background-size: 60px 60px;
+      mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+    }
+
+    .ob-container {
+      position: relative; z-index: 10; min-height: 100vh;
+      display: flex; align-items: flex-start; justify-content: center;
+      padding: 30px 20px; overflow-y: auto;
+    }
+
+    .ob-card {
+      background: linear-gradient(145deg, #1a1a1a 0%, #141414 100%);
+      border: 1px solid rgba(212,175,55,0.25); border-radius: 20px;
+      padding: 44px 48px; width: 100%; max-width: 560px;
+      box-shadow: 0 0 0 1px rgba(212,175,55,0.08), 0 25px 60px rgba(0,0,0,0.7), 0 0 80px rgba(212,175,55,0.06);
+      animation: cardIn 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+      margin: auto 0;
+    }
+    @keyframes cardIn { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
+
+    .ob-logo { text-align: center; margin-bottom: 28px; }
+    .ob-logo-icon {
+      display: inline-flex; align-items: center; justify-content: center;
+      width: 56px; height: 56px;
+      background: linear-gradient(135deg, rgba(212,175,55,0.15), rgba(212,175,55,0.05));
+      border: 1.5px solid rgba(212,175,55,0.4); border-radius: 14px; margin-bottom: 10px;
+    }
+    .ob-logo-icon i { font-size: 24px; color: var(--gold); }
+    .ob-logo-title { font-size: 22px; font-weight: 800; background: linear-gradient(135deg, #f0c040 0%, #d4af37 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+    .ob-logo-sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+
+    /* Progress steps */
+    .steps-bar { display: flex; align-items: center; justify-content: center; margin-bottom: 32px; }
+    .step-dot {
+      width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700; transition: all .3s;
+      border: 2px solid #333; background: #1a1a1a; color: #555;
+    }
+    .step-dot.active { border-color: var(--gold); background: rgba(212,175,55,.15); color: var(--gold); }
+    .step-dot.done { border-color: #2ecc71; background: rgba(46,204,113,.15); color: #2ecc71; }
+    .step-line { flex: 1; height: 2px; background: #2a2a2a; max-width: 60px; transition: background .3s; }
+    .step-line.done { background: rgba(46,204,113,.4); }
+    .step-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .6px; text-align: center; margin-top: 6px; }
+
+    /* Step content */
+    .step-content { display: none; }
+    .step-content.active { display: block; animation: fadeIn .3s ease; }
+    @keyframes fadeIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
+
+    .step-heading { font-size: 20px; font-weight: 700; color: var(--text-primary); margin-bottom: 6px; }
+    .step-sub { font-size: 13px; color: var(--text-muted); margin-bottom: 24px; line-height: 1.5; }
+
+    .form-group { margin-bottom: 16px; }
+    .form-label { display: block; font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: .8px; margin-bottom: 7px; }
+    .form-input {
+      width: 100%; background: var(--bg-input); border: 1.5px solid #2a2a2a; border-radius: 10px;
+      padding: 11px 14px 11px 42px; color: var(--text-primary); font-size: 14px;
+      font-family: 'Inter', sans-serif; transition: border-color .2s, box-shadow .2s; outline: none;
+    }
+    .form-input.no-icon { padding-left: 14px; }
+    .form-input:focus { border-color: var(--gold); box-shadow: 0 0 0 3px rgba(212,175,55,.15); }
+    .form-input::placeholder { color: #444; }
+    .input-wrap { position: relative; }
+    .input-icon { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--text-muted); font-size: 13px; pointer-events: none; }
+    .toggle-pw { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 13px; }
+    .toggle-pw:hover { color: var(--gold); }
+
+    .pw-hint { font-size: 11px; color: var(--text-muted); margin-top: 6px; display: flex; flex-wrap: wrap; gap: 8px; }
+    .pw-hint span { display: flex; align-items: center; gap: 4px; }
+    .pw-hint .ok { color: #2ecc71; }
+    .pw-hint .no { color: #555; }
+
+    /* HIPAA policy box */
+    .hipaa-box {
+      background: rgba(0,0,0,.3); border: 1px solid rgba(212,175,55,.15); border-radius: 10px;
+      padding: 16px; height: 180px; overflow-y: auto; font-size: 13px; color: var(--text-muted);
+      line-height: 1.7; margin-bottom: 16px;
+    }
+    .hipaa-box::-webkit-scrollbar { width: 6px; }
+    .hipaa-box::-webkit-scrollbar-track { background: rgba(255,255,255,.04); border-radius: 4px; }
+    .hipaa-box::-webkit-scrollbar-thumb { background: rgba(212,175,55,.3); border-radius: 4px; }
+    .hipaa-box p { margin-bottom: 12px; }
+
+    .hipaa-scroll-notice {
+      font-size: 11px; color: var(--gold); font-weight: 600; text-align: center; margin-bottom: 12px;
+      display: flex; align-items: center; justify-content: center; gap: 6px;
+    }
+    .hipaa-scroll-notice.hidden { display: none; }
+
+    .check-row { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 16px; }
+    .check-row input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--gold); flex-shrink: 0; margin-top: 2px; }
+    .check-row label { font-size: 13px; color: var(--text-secondary); line-height: 1.5; cursor: pointer; }
+
+    .sig-date-row { display: grid; grid-template-columns: 1fr 140px; gap: 12px; }
+
+    /* Role confirm */
+    .role-badge {
+      display: inline-flex; align-items: center; gap: 8px; padding: 6px 16px; border-radius: 8px;
+      font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; margin-bottom: 16px;
+    }
+    .role-badge.admin { background: rgba(212,175,55,.15); color: var(--gold); border: 1px solid rgba(212,175,55,.3); }
+    .role-badge.staff { background: rgba(52,152,219,.15); color: #3498db; border: 1px solid rgba(52,152,219,.3); }
+
+    .perms-list { list-style: none; padding: 0; margin: 0 0 20px; }
+    .perms-list li { display: flex; align-items: center; gap: 8px; padding: 7px 0; border-bottom: 1px solid rgba(255,255,255,.05); font-size: 13px; color: var(--text-secondary); }
+    .perms-list li i { color: var(--gold); width: 16px; text-align: center; }
+
+    /* Buttons */
+    .btn-next {
+      width: 100%; padding: 13px; background: linear-gradient(135deg, #d4af37 0%, #c9a227 50%, #b8941f 100%);
+      border: none; border-radius: 10px; color: #000; font-size: 14px; font-weight: 700;
+      font-family: 'Inter', sans-serif; cursor: pointer; letter-spacing: .3px;
+      transition: transform .15s, box-shadow .15s, filter .15s; margin-top: 4px;
+      box-shadow: 0 4px 20px rgba(212,175,55,.3); display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .btn-next:hover { transform: translateY(-1px); box-shadow: 0 8px 30px rgba(212,175,55,.4); filter: brightness(1.05); }
+    .btn-next:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+
+    .error-msg { background: rgba(231,76,60,.12); border: 1px solid rgba(231,76,60,.3); border-radius: 8px; padding: 9px 14px; color: #ff6b6b; font-size: 13px; margin-top: 12px; display: flex; align-items: center; gap: 8px; }
+    .divider { height: 1px; background: linear-gradient(90deg, transparent, rgba(212,175,55,.3), transparent); margin: 20px 0; }
+  </style>
+</head>
+<body>
+  <div class="ob-bg"></div>
+  <div class="ob-container">
+    <div class="ob-card">
+
+      <div class="ob-logo">
+        <div class="ob-logo-icon"><i class="fa-solid fa-bone"></i></div>
+        <div class="ob-logo-title">SpinePay Pro</div>
+        <div class="ob-logo-sub">Walden Bailey Chiropractic &bull; Buffalo, NY</div>
+      </div>
+
+      <!-- Progress indicator -->
+      <div>
+        <div class="steps-bar" id="stepsBar">
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+            <div class="step-dot active" id="dot1"><i class="fa-solid fa-lock" style="font-size:11px;"></i></div>
+            <div class="step-label" style="color:var(--gold);">Password</div>
+          </div>
+          <div class="step-line" id="line1"></div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+            <div class="step-dot" id="dot2"><i class="fa-solid fa-shield-halved" style="font-size:11px;"></i></div>
+            <div class="step-label" style="color:#555;" id="lbl2">HIPAA</div>
+          </div>
+          <div class="step-line" id="line2"></div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+            <div class="step-dot" id="dot3"><i class="fa-solid fa-check" style="font-size:11px;"></i></div>
+            <div class="step-label" style="color:#555;" id="lbl3">Confirm</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <!-- STEP 1: Change Password -->
+      <div class="step-content active" id="step1">
+        <div class="step-heading" id="step1Welcome">Welcome!</div>
+        <div class="step-sub">Before you begin, please set your password.</div>
+
+        <div class="form-group">
+          <label class="form-label">New Password</label>
+          <div class="input-wrap">
+            <i class="fa-solid fa-lock input-icon"></i>
+            <input type="password" class="form-input" id="newPassword" placeholder="Enter new password" autocomplete="new-password" />
+            <button class="toggle-pw" type="button" onclick="toggleVisibility('newPassword',this)">
+              <i class="fa-solid fa-eye"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Confirm Password</label>
+          <div class="input-wrap">
+            <i class="fa-solid fa-lock input-icon"></i>
+            <input type="password" class="form-input" id="confirmPassword" placeholder="Confirm new password" autocomplete="new-password" />
+            <button class="toggle-pw" type="button" onclick="toggleVisibility('confirmPassword',this)">
+              <i class="fa-solid fa-eye"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="pw-hint" id="pwHint">
+          <span><i class="fa-solid fa-circle-dot"></i> <span id="hint-len" class="no">8+ characters</span></span>
+          <span><i class="fa-solid fa-circle-dot"></i> <span id="hint-num" class="no">Contains a number</span></span>
+          <span><i class="fa-solid fa-circle-dot"></i> <span id="hint-match" class="no">Passwords match</span></span>
+        </div>
+
+        <div id="step1Error" class="error-msg" style="display:none;margin-top:12px;">
+          <i class="fa-solid fa-circle-exclamation"></i> <span id="step1ErrText"></span>
+        </div>
+
+        <button class="btn-next" id="step1Btn" style="margin-top:20px;" onclick="submitStep1()">
+          <i class="fa-solid fa-arrow-right"></i> Save and Continue
+        </button>
+      </div>
+
+      <!-- STEP 2: HIPAA -->
+      <div class="step-content" id="step2">
+        <div class="step-heading"><i class="fa-solid fa-shield-halved" style="color:var(--gold);margin-right:8px;"></i> HIPAA Acknowledgment</div>
+        <div class="step-sub">Please read and sign the HIPAA Privacy &amp; Security Policy before continuing.</div>
+
+        <div class="hipaa-scroll-notice" id="hipaaScrollNotice">
+          <i class="fa-solid fa-arrow-down"></i> Scroll to the bottom to enable the agreement checkbox
+        </div>
+
+        <div class="hipaa-box" id="hipaaBox">
+          <p style="font-weight:700;color:var(--text-primary);font-size:14px;margin-bottom:16px;">HIPAA Privacy &amp; Security Policy — Walden Bailey Chiropractic</p>
+          <p>As a workforce member of Walden Bailey Chiropractic, I acknowledge that I have received, read, and understand the HIPAA Privacy and Security policies of this organization.</p>
+          <p>I agree to maintain the confidentiality of all patient health information (PHI) that I encounter in the course of my work, and to disclose such information only as permitted or required by law, and only to those with a legitimate need to know.</p>
+          <p>I agree to access only the minimum necessary patient information required to perform my specific job duties, and will not access records of patients for whom I have no work-related need.</p>
+          <p>I agree to report any suspected privacy or security breach, loss of protected health information, or unauthorized access to my supervisor or the Privacy Officer immediately upon discovery.</p>
+          <p>I agree to never share my login credentials — username and password — with any other person, and to log out of the system when leaving my workstation unattended.</p>
+          <p>I understand that violations of HIPAA or organizational privacy and security policies may result in disciplinary action up to and including termination of employment, and may also result in civil or criminal penalties under applicable federal and state law.</p>
+          <p>I agree to comply with all applicable federal and state privacy laws and regulations, including the Health Insurance Portability and Accountability Act of 1996 (HIPAA) and the HITECH Act.</p>
+          <p>I acknowledge that patient privacy is a fundamental right and that protecting it is a core responsibility of every member of our workforce.</p>
+          <p style="margin-bottom:0;">Policy Version 1.0 &bull; Walden Bailey Chiropractic &bull; 1086 Walden Ave Suite 1, Buffalo NY 14211</p>
+        </div>
+
+        <div class="check-row">
+          <input type="checkbox" id="hipaaAgree" disabled />
+          <label for="hipaaAgree">I have read and agree to the HIPAA Privacy and Security Policy of Walden Bailey Chiropractic</label>
+        </div>
+
+        <div class="sig-date-row">
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label">Digital Signature — Type Your Full Name</label>
+            <div class="input-wrap">
+              <i class="fa-solid fa-signature input-icon"></i>
+              <input type="text" class="form-input" id="hipaaSignature" placeholder="Full legal name" />
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:0;">
+            <label class="form-label">Date</label>
+            <input type="text" class="form-input no-icon" id="hipaaDate" readonly style="background:rgba(0,0,0,.2);color:var(--text-muted);" />
+          </div>
+        </div>
+
+        <div id="step2Error" class="error-msg" style="display:none;margin-top:12px;">
+          <i class="fa-solid fa-circle-exclamation"></i> <span id="step2ErrText"></span>
+        </div>
+
+        <button class="btn-next" id="step2Btn" style="margin-top:20px;" onclick="submitStep2()">
+          <i class="fa-solid fa-pen-nib"></i> Sign and Continue
+        </button>
+      </div>
+
+      <!-- STEP 3: Confirm Role -->
+      <div class="step-content" id="step3">
+        <div class="step-heading"><i class="fa-solid fa-circle-check" style="color:#2ecc71;margin-right:8px;"></i> You're all set!</div>
+        <div class="step-sub" id="step3Sub">You are now logged in and ready to use SpinePay Pro.</div>
+
+        <div id="step3RoleBadge"></div>
+
+        <div style="font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.7px;color:var(--gold);margin-bottom:10px;">
+          Your Access Includes
+        </div>
+        <ul class="perms-list" id="step3PermsList"></ul>
+
+        <button class="btn-next" onclick="finishOnboarding()">
+          <i class="fa-solid fa-rocket"></i> Got it, Let's Go!
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    'use strict';
+
+    let currentUser = null;
+
+    function toggleVisibility(inputId, btn) {
+      const input = document.getElementById(inputId);
+      const icon  = btn.querySelector('i');
+      if (input.type === 'password') {
+        input.type = 'text';
+        icon.className = 'fa-solid fa-eye-slash';
+      } else {
+        input.type = 'password';
+        icon.className = 'fa-solid fa-eye';
+      }
+    }
+
+    // Load user from sessionStorage
+    document.addEventListener('DOMContentLoaded', () => {
+      const userData = sessionStorage.getItem('currentUser');
+      if (!userData) { window.location.href = 'index.html'; return; }
+      currentUser = JSON.parse(userData);
+
+      // Personalise step 1 heading
+      const firstName = currentUser.full_name.split(' ')[0];
+      document.getElementById('step1Welcome').textContent = `Welcome, ${firstName}!`;
+
+      // Set HIPAA date
+      document.getElementById('hipaaDate').value = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+
+      // Password hints live update
+      document.getElementById('newPassword').addEventListener('input', updateHints);
+      document.getElementById('confirmPassword').addEventListener('input', updateHints);
+
+      // HIPAA scroll detection
+      const hipaaBox = document.getElementById('hipaaBox');
+      hipaaBox.addEventListener('scroll', () => {
+        const atBottom = hipaaBox.scrollTop + hipaaBox.clientHeight >= hipaaBox.scrollHeight - 10;
+        if (atBottom) {
+          document.getElementById('hipaaAgree').disabled = false;
+          document.getElementById('hipaaScrollNotice').classList.add('hidden');
+        }
+      });
+
+      // Populate step 3 role info
+      setupStep3();
+    });
+
+    function updateHints() {
+      const pw  = document.getElementById('newPassword').value;
+      const cpw = document.getElementById('confirmPassword').value;
+      const lenOk   = pw.length >= 8;
+      const numOk   = /\d/.test(pw);
+      const matchOk = pw.length > 0 && pw === cpw;
+      setHint('hint-len',   lenOk);
+      setHint('hint-num',   numOk);
+      setHint('hint-match', matchOk);
+    }
+
+    function setHint(id, ok) {
+      const el = document.getElementById(id);
+      el.className = ok ? 'ok' : 'no';
+    }
+
+    function showStepError(step, msg) {
+      document.getElementById(`step${step}Error`).style.display = 'flex';
+      document.getElementById(`step${step}ErrText`).textContent = msg;
+    }
+    function hideStepError(step) {
+      document.getElementById(`step${step}Error`).style.display = 'none';
+    }
+
+    // ── Step 1: Change Password ───────────────────────────────────────────────
+    async function submitStep1() {
+      hideStepError(1);
+      const pw  = document.getElementById('newPassword').value;
+      const cpw = document.getElementById('confirmPassword').value;
+
+      if (pw.length < 8)          { showStepError(1, 'Password must be at least 8 characters.'); return; }
+      if (!/\d/.test(pw))         { showStepError(1, 'Password must contain at least one number.'); return; }
+      if (pw !== cpw)             { showStepError(1, 'Passwords do not match.'); return; }
+
+      const btn = document.getElementById('step1Btn');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving…';
+
+      try {
+        await window.api.staff.changePassword(currentUser.id, pw);
+        goToStep(2);
+      } catch (err) {
+        showStepError(1, 'Failed to update password. Please try again.');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-arrow-right"></i> Save and Continue';
+      }
+    }
+
+    // ── Step 2: HIPAA ─────────────────────────────────────────────────────────
+    async function submitStep2() {
+      hideStepError(2);
+      const agreed = document.getElementById('hipaaAgree').checked;
+      const sig    = document.getElementById('hipaaSignature').value.trim();
+
+      if (!agreed)  { showStepError(2, 'You must read and agree to the HIPAA Policy to continue.'); return; }
+      if (!sig)     { showStepError(2, 'Please type your full legal name as your digital signature.'); return; }
+
+      const btn = document.getElementById('step2Btn');
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Saving…';
+
+      try {
+        await window.api.staff.hipaaSign(currentUser.id, sig);
+        goToStep(3);
+      } catch (err) {
+        showStepError(2, 'Failed to record acknowledgment. Please try again.');
+      } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fa-solid fa-pen-nib"></i> Sign and Continue';
+      }
+    }
+
+    // ── Step 3: Confirm role ──────────────────────────────────────────────────
+    function setupStep3() {
+      if (!currentUser) return;
+      const role = currentUser.role;
+      const badgeEl = document.getElementById('step3RoleBadge');
+      const permEl  = document.getElementById('step3PermsList');
+      const subEl   = document.getElementById('step3Sub');
+
+      subEl.textContent = `You are logged in as ${currentUser.full_name}. Review your access below.`;
+
+      badgeEl.innerHTML = `
+        <div class="role-badge ${role}">
+          <i class="fa-solid fa-${role === 'admin' ? 'crown' : 'id-badge'}"></i>
+          ${role.charAt(0).toUpperCase() + role.slice(1)}
+        </div>`;
+
+      const adminPerms = [
+        ['fa-gauge', 'Dashboard — practice overview and stats'],
+        ['fa-users', 'Patients — all patient records and history'],
+        ['fa-calendar-days', 'Scheduling — appointments and calendar'],
+        ['fa-notes-medical', 'SOAP Notes — clinical documentation with voice dictation'],
+        ['fa-clipboard-list', 'Intake Forms — new patient intake'],
+        ['fa-file-invoice-dollar', 'Billing &amp; Claims — claims and payments'],
+        ['fa-receipt', 'EOB &amp; Receipts — explanation of benefits'],
+        ['fa-chart-bar', 'Reports — revenue and appointment analytics'],
+        ['fa-users-gear', 'Staff Management — add and manage staff accounts'],
+        ['fa-gear', 'Settings — practice configuration and backups'],
+      ];
+      const staffPerms = [
+        ['fa-gauge', 'Dashboard — practice overview'],
+        ['fa-users', 'Patients — patient records and lookup'],
+        ['fa-calendar-days', 'Scheduling — appointments and calendar'],
+        ['fa-notes-medical', 'SOAP Notes — clinical documentation with voice dictation'],
+        ['fa-clipboard-list', 'Intake Forms — new patient intake'],
+        ['fa-list-ol', 'Waitlist — patient waitlist management'],
+        ['fa-share-nodes', 'Referrals — patient referral tracking'],
+        ['fa-car', 'Transportation — patient transport records'],
+      ];
+
+      const perms = role === 'admin' ? adminPerms : staffPerms;
+      permEl.innerHTML = perms.map(([icon, label]) => `
+        <li><i class="fa-solid ${icon}"></i> ${label}</li>
+      `).join('');
+    }
+
+    function finishOnboarding() {
+      window.location.href = 'app.html';
+    }
+
+    // ── Navigation between steps ──────────────────────────────────────────────
+    function goToStep(n) {
+      document.querySelectorAll('.step-content').forEach(el => el.classList.remove('active'));
+      document.getElementById(`step${n}`).classList.add('active');
+
+      // Update dots
+      for (let i = 1; i <= 3; i++) {
+        const dot = document.getElementById(`dot${i}`);
+        if (i < n)      { dot.className = 'step-dot done'; }
+        else if (i === n) { dot.className = 'step-dot active'; }
+        else            { dot.className = 'step-dot'; }
+      }
+      // Update lines
+      document.getElementById('line1').className = 'step-line' + (n > 1 ? ' done' : '');
+      document.getElementById('line2').className = 'step-line' + (n > 2 ? ' done' : '');
+
+      // Update labels
+      document.getElementById('lbl2').style.color = n >= 2 ? 'var(--gold)' : '#555';
+      document.getElementById('lbl3').style.color = n >= 3 ? 'var(--gold)' : '#555';
+    }
+  </script>
+</body>
+</html>
