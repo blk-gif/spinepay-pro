@@ -73,6 +73,17 @@ function runMigrations(db) {
       ip_address   TEXT,
       success      INTEGER DEFAULT 1
     );
+
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id       INTEGER NOT NULL,
+      username      TEXT NOT NULL,
+      action        TEXT NOT NULL,
+      resource_type TEXT NOT NULL,
+      resource_id   TEXT,
+      outcome       TEXT DEFAULT 'success',
+      logged_at     DATETIME DEFAULT (datetime('now'))
+    );
   `);
 
   // ── Column migrations ─────────────────────────────────────────────────────────

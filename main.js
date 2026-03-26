@@ -38,6 +38,24 @@ function verifyAndMigrate(inputPassword, storedHash, userId) {
   return bcrypt.compareSync(inputPassword, storedHash);
 }
 
+// ── IPC auth + audit helpers ──────────────────────────────────────────────────
+function requireAuth() {
+  if (!currentUser) throw Object.assign(new Error('Not authenticated'), { code: 'AUTH_REQUIRED' });
+}
+function requireRole(role) {
+  requireAuth();
+  if (currentUser.role.toLowerCase() !== role.toLowerCase())
+    throw Object.assign(new Error('Forbidden'), { code: 'FORBIDDEN' });
+}
+function auditLog(action, resourceType, resourceId, outcome = 'success') {
+  try {
+    db.prepare(`
+      INSERT INTO audit_log (user_id, username, action, resource_type, resource_id, outcome, logged_at)
+      VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+    `).run(currentUser?.id ?? 0, currentUser?.username ?? 'system', action, resourceType, String(resourceId ?? ''), outcome);
+  } catch (_) {}
+}
+
 function initDatabase() {
   const Database = require('better-sqlite3');
   const userDataPath = app.getPath('userData');
@@ -599,6 +617,7 @@ ipcMain.handle('auth:login', (event, { username, password }) => {
 
 // STAFF MANAGEMENT
 ipcMain.handle('staff:get-all', () => {
+  requireRole('admin');
   return db.prepare(`
     SELECT id, username, role, full_name, email, active, last_login,
            hipaa_signed, hipaa_signed_at, temp_password, created_at
@@ -607,6 +626,7 @@ ipcMain.handle('staff:get-all', () => {
 });
 
 ipcMain.handle('staff:create', (event, data) => {
+  requireRole('admin');
   const { first_name, last_name, username, role, email, temp_password_plain } = data;
   const full_name = `${first_name} ${last_name}`;
   const password_hash = bcrypt.hashSync(temp_password_plain, 10);
@@ -623,11 +643,13 @@ ipcMain.handle('staff:create', (event, data) => {
 });
 
 ipcMain.handle('staff:toggle-active', (event, { id, active }) => {
+  requireRole('admin');
   db.prepare('UPDATE users SET active = ? WHERE id = ?').run(active ? 1 : 0, id);
   return { success: true };
 });
 
 ipcMain.handle('staff:change-password', (event, { userId, newPassword }) => {
+  requireAuth();
   if (!newPassword || newPassword.length < 8) {
     return { success: false, error: 'Password must be at least 8 characters' };
   }
@@ -638,6 +660,7 @@ ipcMain.handle('staff:change-password', (event, { userId, newPassword }) => {
 });
 
 ipcMain.handle('staff:hipaa-sign', (event, { staffId, signature }) => {
+  requireAuth();
   const now = new Date().toISOString();
   try { db.prepare(`INSERT INTO staff_hipaa (staff_id, signature, agreed_at, policy_version) VALUES (?, ?, ?, '1.0')`).run(staffId, signature, now); } catch (_) {}
   try { db.prepare('UPDATE users SET hipaa_signed = 1, hipaa_signed_at = ? WHERE id = ?').run(now, staffId); } catch (_) {}
@@ -645,6 +668,7 @@ ipcMain.handle('staff:hipaa-sign', (event, { staffId, signature }) => {
 });
 
 ipcMain.handle('staff:get-login-history', (event, staffId) => {
+  requireRole('admin');
   return db.prepare('SELECT * FROM staff_login_history WHERE staff_id = ? ORDER BY logged_in_at DESC LIMIT 50').all(staffId);
 });
 
@@ -704,23 +728,30 @@ ipcMain.handle('auth:get-current-user', () => {
 
 // PATIENTS
 ipcMain.handle('patients:get-all', () => {
+  requireAuth();
   return db.prepare('SELECT * FROM patients ORDER BY last_name, first_name').all();
 });
 
 ipcMain.handle('patients:get-by-id', (event, id) => {
-  return db.prepare('SELECT * FROM patients WHERE id = ?').get(id);
+  requireAuth();
+  const patient = db.prepare('SELECT * FROM patients WHERE id = ?').get(id);
+  auditLog('READ', 'patient', id);
+  return patient;
 });
 
 ipcMain.handle('patients:create', (event, data) => {
+  requireAuth();
   const stmt = db.prepare(`
     INSERT INTO patients (first_name, last_name, dob, gender, phone, email, address, city, state, zip, emergency_contact, emergency_phone, notes, status)
     VALUES (@first_name, @last_name, @dob, @gender, @phone, @email, @address, @city, @state, @zip, @emergency_contact, @emergency_phone, @notes, @status)
   `);
   const result = stmt.run({ ...data, status: data.status || 'active' });
+  auditLog('CREATE', 'patient', result.lastInsertRowid);
   return { success: true, id: result.lastInsertRowid };
 });
 
 ipcMain.handle('patients:update', (event, { id, data }) => {
+  requireAuth();
   const stmt = db.prepare(`
     UPDATE patients SET first_name=@first_name, last_name=@last_name, dob=@dob, gender=@gender,
     phone=@phone, email=@email, address=@address, city=@city, state=@state, zip=@zip,
@@ -728,15 +759,19 @@ ipcMain.handle('patients:update', (event, { id, data }) => {
     status=@status, updated_at=CURRENT_TIMESTAMP WHERE id=@id
   `);
   stmt.run({ ...data, id });
+  auditLog('UPDATE', 'patient', id);
   return { success: true };
 });
 
 ipcMain.handle('patients:delete', (event, id) => {
+  requireRole('admin');
   db.prepare('DELETE FROM patients WHERE id = ?').run(id);
+  auditLog('DELETE', 'patient', id);
   return { success: true };
 });
 
 ipcMain.handle('patients:search', (event, query) => {
+  requireAuth();
   const q = `%${query}%`;
   return db.prepare(`
     SELECT * FROM patients WHERE first_name LIKE ? OR last_name LIKE ? OR phone LIKE ? OR email LIKE ?
@@ -745,6 +780,7 @@ ipcMain.handle('patients:search', (event, query) => {
 });
 
 ipcMain.handle('patients:import-csv', (event, rows) => {
+  requireRole('admin');
   const insert = db.prepare(`
     INSERT INTO patients (first_name, last_name, dob, gender, phone, email, address, city, state, zip, status)
     VALUES (@first_name, @last_name, @dob, @gender, @phone, @email, @address, @city, @state, @zip, 'active')
@@ -763,35 +799,43 @@ ipcMain.handle('patients:import-csv', (event, rows) => {
 
 // INSURANCE
 ipcMain.handle('insurance:get-by-patient', (event, patientId) => {
+  requireAuth();
   return db.prepare('SELECT * FROM insurance WHERE patient_id = ? ORDER BY type').all(patientId);
 });
 
 ipcMain.handle('insurance:create', (event, data) => {
+  requireAuth();
   const stmt = db.prepare(`
     INSERT INTO insurance (patient_id, type, provider, policy_number, group_number, subscriber_name, subscriber_dob, subscriber_id, relationship, copay)
     VALUES (@patient_id, @type, @provider, @policy_number, @group_number, @subscriber_name, @subscriber_dob, @subscriber_id, @relationship, @copay)
   `);
   const result = stmt.run(data);
+  auditLog('CREATE', 'insurance', result.lastInsertRowid);
   return { success: true, id: result.lastInsertRowid };
 });
 
 ipcMain.handle('insurance:update', (event, { id, data }) => {
+  requireAuth();
   const stmt = db.prepare(`
     UPDATE insurance SET type=@type, provider=@provider, policy_number=@policy_number, group_number=@group_number,
     subscriber_name=@subscriber_name, subscriber_dob=@subscriber_dob, subscriber_id=@subscriber_id,
     relationship=@relationship, copay=@copay WHERE id=@id
   `);
   stmt.run({ ...data, id });
+  auditLog('UPDATE', 'insurance', id);
   return { success: true };
 });
 
 ipcMain.handle('insurance:delete', (event, id) => {
+  requireAuth();
   db.prepare('DELETE FROM insurance WHERE id = ?').run(id);
+  auditLog('DELETE', 'insurance', id);
   return { success: true };
 });
 
 // APPOINTMENTS
 ipcMain.handle('appointments:get-all', () => {
+  requireAuth();
   return db.prepare(`
     SELECT a.*, p.first_name, p.last_name, p.phone
     FROM appointments a JOIN patients p ON a.patient_id = p.id
@@ -800,6 +844,7 @@ ipcMain.handle('appointments:get-all', () => {
 });
 
 ipcMain.handle('appointments:get-by-date', (event, { startDate, endDate }) => {
+  requireAuth();
   return db.prepare(`
     SELECT a.*, p.first_name, p.last_name, p.phone
     FROM appointments a JOIN patients p ON a.patient_id = p.id
@@ -809,64 +854,78 @@ ipcMain.handle('appointments:get-by-date', (event, { startDate, endDate }) => {
 });
 
 ipcMain.handle('appointments:get-by-patient', (event, patientId) => {
+  requireAuth();
   return db.prepare(`
     SELECT * FROM appointments WHERE patient_id = ? ORDER BY date DESC, time ASC
   `).all(patientId);
 });
 
 ipcMain.handle('appointments:create', (event, data) => {
+  requireAuth();
   const stmt = db.prepare(`
     INSERT INTO appointments (patient_id, date, time, duration, type, status, notes, provider)
     VALUES (@patient_id, @date, @time, @duration, @type, @status, @notes, @provider)
   `);
   const result = stmt.run({ status: 'scheduled', provider: 'Dr. Walden Bailey', ...data });
+  auditLog('CREATE', 'appointment', result.lastInsertRowid);
   return { success: true, id: result.lastInsertRowid };
 });
 
 ipcMain.handle('appointments:update', (event, { id, data }) => {
+  requireAuth();
   const stmt = db.prepare(`
     UPDATE appointments SET patient_id=@patient_id, date=@date, time=@time, duration=@duration,
     type=@type, status=@status, notes=@notes, provider=@provider WHERE id=@id
   `);
   stmt.run({ ...data, id });
+  auditLog('UPDATE', 'appointment', id);
   return { success: true };
 });
 
 ipcMain.handle('appointments:delete', (event, id) => {
+  requireAuth();
   db.prepare('DELETE FROM appointments WHERE id = ?').run(id);
+  auditLog('DELETE', 'appointment', id);
   return { success: true };
 });
 
 ipcMain.handle('appointments:update-status', (event, { id, status }) => {
+  requireAuth();
   db.prepare('UPDATE appointments SET status = ? WHERE id = ?').run(status, id);
   return { success: true };
 });
 
 // VISIT NOTES
 ipcMain.handle('visit-notes:get-by-appointment', (event, appointmentId) => {
+  requireAuth();
   return db.prepare('SELECT * FROM visit_notes WHERE appointment_id = ?').get(appointmentId);
 });
 
 ipcMain.handle('visit-notes:create', (event, data) => {
+  requireAuth();
   const stmt = db.prepare(`
     INSERT INTO visit_notes (appointment_id, patient_id, subjective, objective, assessment, plan, diagnosis_codes, procedure_codes)
     VALUES (@appointment_id, @patient_id, @subjective, @objective, @assessment, @plan, @diagnosis_codes, @procedure_codes)
   `);
   const result = stmt.run(data);
+  auditLog('CREATE', 'visit_note', result.lastInsertRowid);
   return { success: true, id: result.lastInsertRowid };
 });
 
 ipcMain.handle('visit-notes:update', (event, { id, data }) => {
+  requireAuth();
   const stmt = db.prepare(`
     UPDATE visit_notes SET subjective=@subjective, objective=@objective, assessment=@assessment,
     plan=@plan, diagnosis_codes=@diagnosis_codes, procedure_codes=@procedure_codes WHERE id=@id
   `);
   stmt.run({ ...data, id });
+  auditLog('UPDATE', 'visit_note', id);
   return { success: true };
 });
 
 // CLAIMS
 ipcMain.handle('claims:get-all', () => {
+  requireAuth();
   return db.prepare(`
     SELECT c.*, p.first_name, p.last_name
     FROM claims c JOIN patients p ON c.patient_id = p.id
@@ -875,10 +934,12 @@ ipcMain.handle('claims:get-all', () => {
 });
 
 ipcMain.handle('claims:get-by-patient', (event, patientId) => {
+  requireAuth();
   return db.prepare('SELECT * FROM claims WHERE patient_id = ? ORDER BY created_at DESC').all(patientId);
 });
 
 ipcMain.handle('claims:create', (event, data) => {
+  requireAuth();
   if (!data.claim_number) {
     const ts = Date.now().toString().slice(-6);
     data.claim_number = `CLM-${new Date().getFullYear()}-${ts}`;
@@ -888,35 +949,44 @@ ipcMain.handle('claims:create', (event, data) => {
     VALUES (@patient_id, @appointment_id, @claim_number, @insurer, @claim_type, @amount, @paid_amount, @status, @filed_date, @service_date, @icd_codes, @cpt_codes, @notes)
   `);
   const result = stmt.run({ appointment_id: null, paid_amount: 0, status: 'pending', ...data });
+  auditLog('CREATE', 'claim', result.lastInsertRowid);
   return { success: true, id: result.lastInsertRowid };
 });
 
 ipcMain.handle('claims:update', (event, { id, data }) => {
+  requireAuth();
   const stmt = db.prepare(`
     UPDATE claims SET patient_id=@patient_id, insurer=@insurer, claim_type=@claim_type, amount=@amount,
     paid_amount=@paid_amount, status=@status, filed_date=@filed_date, service_date=@service_date,
     icd_codes=@icd_codes, cpt_codes=@cpt_codes, notes=@notes WHERE id=@id
   `);
   stmt.run({ ...data, id });
+  auditLog('UPDATE', 'claim', id);
   return { success: true };
 });
 
 ipcMain.handle('claims:delete', (event, id) => {
+  requireRole('admin');
   db.prepare('DELETE FROM claims WHERE id = ?').run(id);
+  auditLog('DELETE', 'claim', id);
   return { success: true };
 });
 
 ipcMain.handle('claims:update-status', (event, { id, status }) => {
+  requireAuth();
   db.prepare('UPDATE claims SET status = ? WHERE id = ?').run(status, id);
+  auditLog('UPDATE', 'claim', id);
   return { success: true };
 });
 
 // PAYMENTS
 ipcMain.handle('payments:get-by-patient', (event, patientId) => {
+  requireAuth();
   return db.prepare('SELECT * FROM payments WHERE patient_id = ? ORDER BY date DESC').all(patientId);
 });
 
 ipcMain.handle('payments:get-all', () => {
+  requireAuth();
   return db.prepare(`
     SELECT pay.*, p.first_name, p.last_name
     FROM payments pay JOIN patients p ON pay.patient_id = p.id
@@ -925,6 +995,7 @@ ipcMain.handle('payments:get-all', () => {
 });
 
 ipcMain.handle('payments:create', (event, data) => {
+  requireAuth();
   const stmt = db.prepare(`
     INSERT INTO payments (patient_id, claim_id, amount, method, reference, date, notes)
     VALUES (@patient_id, @claim_id, @amount, @method, @reference, @date, @notes)
@@ -944,11 +1015,13 @@ ipcMain.handle('payments:create', (event, data) => {
       db.prepare('UPDATE claims SET status = ? WHERE id = ?').run(newStatus, data.claim_id);
     }
   }
+  auditLog('CREATE', 'payment', result.lastInsertRowid);
   return { success: true, id: result.lastInsertRowid };
 });
 
 // REFERRALS
 ipcMain.handle('referrals:get-all', () => {
+  requireAuth();
   return db.prepare(`
     SELECT r.*, p.first_name, p.last_name, p.phone, p.email
     FROM referrals r JOIN patients p ON r.patient_id = p.id
@@ -957,19 +1030,23 @@ ipcMain.handle('referrals:get-all', () => {
 });
 
 ipcMain.handle('referrals:get-by-patient', (event, patientId) => {
+  requireAuth();
   return db.prepare('SELECT * FROM referrals WHERE patient_id = ? ORDER BY created_at DESC').all(patientId);
 });
 
 ipcMain.handle('referrals:create', (event, data) => {
+  requireAuth();
   const stmt = db.prepare(`
     INSERT INTO referrals (patient_id, type, recipient_name, recipient_email, recipient_phone, reason, status, sent_date, notes)
     VALUES (@patient_id, @type, @recipient_name, @recipient_email, @recipient_phone, @reason, @status, @sent_date, @notes)
   `);
   const result = stmt.run({ status: 'pending', ...data });
+  auditLog('CREATE', 'referral', result.lastInsertRowid);
   return { success: true, id: result.lastInsertRowid };
 });
 
 ipcMain.handle('referrals:update', (event, { id, data }) => {
+  requireAuth();
   const stmt = db.prepare(`
     UPDATE referrals SET type=@type, recipient_name=@recipient_name, recipient_email=@recipient_email,
     recipient_phone=@recipient_phone, reason=@reason, status=@status, sent_date=@sent_date, notes=@notes WHERE id=@id
@@ -979,18 +1056,22 @@ ipcMain.handle('referrals:update', (event, { id, data }) => {
 });
 
 ipcMain.handle('referrals:delete', (event, id) => {
+  requireAuth();
   db.prepare('DELETE FROM referrals WHERE id = ?').run(id);
   return { success: true };
 });
 
 ipcMain.handle('referrals:send-referral', (event, id) => {
+  requireAuth();
   const today = new Date().toISOString().split('T')[0];
   db.prepare(`UPDATE referrals SET status = 'sent', sent_date = ? WHERE id = ?`).run(today, id);
+  auditLog('UPDATE', 'referral', id);
   return { success: true };
 });
 
 // REPORTS
 ipcMain.handle('reports:revenue-summary', (event, { startDate, endDate }) => {
+  requireRole('admin');
   const payments = db.prepare(`
     SELECT SUM(amount) as total FROM payments WHERE date BETWEEN ? AND ?
   `).get(startDate, endDate);
@@ -1012,6 +1093,7 @@ ipcMain.handle('reports:revenue-summary', (event, { startDate, endDate }) => {
 });
 
 ipcMain.handle('reports:appointment-stats', (event, { startDate, endDate }) => {
+  requireRole('admin');
   return db.prepare(`
     SELECT status, COUNT(*) as count FROM appointments
     WHERE date BETWEEN ? AND ? GROUP BY status
@@ -1045,6 +1127,7 @@ ipcMain.handle('locations:update', (event, { id, data }) => {
 
 // ── INTAKE FORMS ────────────────────────────────────────────────────────────
 ipcMain.handle('intake:get-all', () => {
+  requireAuth();
   return db.prepare(`
     SELECT f.*, p.first_name, p.last_name
     FROM intake_forms f JOIN patients p ON f.patient_id = p.id
@@ -1052,6 +1135,7 @@ ipcMain.handle('intake:get-all', () => {
   `).all();
 });
 ipcMain.handle('intake:get-by-patient', (event, patientId) => {
+  requireAuth();
   return db.prepare(`
     SELECT f.*, p.first_name, p.last_name
     FROM intake_forms f JOIN patients p ON f.patient_id = p.id
@@ -1059,21 +1143,27 @@ ipcMain.handle('intake:get-by-patient', (event, patientId) => {
   `).all(patientId);
 });
 ipcMain.handle('intake:get-by-id', (event, id) => {
-  return db.prepare(`
+  requireAuth();
+  const form = db.prepare(`
     SELECT f.*, p.first_name, p.last_name
     FROM intake_forms f JOIN patients p ON f.patient_id = p.id
     WHERE f.id = ?
   `).get(id);
+  auditLog('READ', 'intake_form', id);
+  return form;
 });
 ipcMain.handle('intake:create', (event, data) => {
+  requireAuth();
   const stmt = db.prepare(`
     INSERT INTO intake_forms (patient_id, full_name, dob, gender, address, phone, email, insurance_provider, policy_number, group_number, medical_history, current_medications, allergies, reason_for_visit, hipaa_acknowledged, signature, signature_date, submitted_at)
     VALUES (@patient_id, @full_name, @dob, @gender, @address, @phone, @email, @insurance_provider, @policy_number, @group_number, @medical_history, @current_medications, @allergies, @reason_for_visit, @hipaa_acknowledged, @signature, @signature_date, @submitted_at)
   `);
   const result = stmt.run({ hipaa_acknowledged: 0, ...data });
+  auditLog('CREATE', 'intake_form', result.lastInsertRowid);
   return { success: true, id: result.lastInsertRowid };
 });
 ipcMain.handle('intake:update', (event, { id, data }) => {
+  requireAuth();
   const stmt = db.prepare(`
     UPDATE intake_forms SET full_name=@full_name, dob=@dob, gender=@gender, address=@address, phone=@phone,
     email=@email, insurance_provider=@insurance_provider, policy_number=@policy_number, group_number=@group_number,
@@ -1082,21 +1172,26 @@ ipcMain.handle('intake:update', (event, { id, data }) => {
     signature_date=@signature_date, submitted_at=@submitted_at WHERE id=@id
   `);
   stmt.run({ hipaa_acknowledged: 0, ...data, id });
+  auditLog('UPDATE', 'intake_form', id);
   return { success: true };
 });
 
 // ── INSURANCE VERIFICATION ──────────────────────────────────────────────────
 ipcMain.handle('insverify:get-by-patient', (event, patientId) => {
+  requireAuth();
   return db.prepare('SELECT * FROM insurance_verifications WHERE patient_id = ? ORDER BY created_at DESC').all(patientId);
 });
 ipcMain.handle('insverify:create', (event, data) => {
+  requireAuth();
   const result = db.prepare(`
     INSERT INTO insurance_verifications (patient_id, insurance_id, provider, copay, deductible, deductible_met, coverage_limit, auth_required, auth_number, status, notes, verified_at)
     VALUES (@patient_id, @insurance_id, @provider, @copay, @deductible, @deductible_met, @coverage_limit, @auth_required, @auth_number, @status, @notes, @verified_at)
   `).run({ status: 'verified', verified_at: new Date().toISOString().split('T')[0], ...data });
+  auditLog('CREATE', 'ins_verification', result.lastInsertRowid);
   return { success: true, id: result.lastInsertRowid };
 });
 ipcMain.handle('insverify:update', (event, { id, data }) => {
+  requireAuth();
   db.prepare(`
     UPDATE insurance_verifications SET copay=@copay, deductible=@deductible, deductible_met=@deductible_met,
     coverage_limit=@coverage_limit, auth_required=@auth_required, auth_number=@auth_number,
@@ -1107,9 +1202,11 @@ ipcMain.handle('insverify:update', (event, { id, data }) => {
 
 // ── SOAP NOTES ──────────────────────────────────────────────────────────────
 ipcMain.handle('soap:get-by-appointment', (event, appointmentId) => {
+  requireAuth();
   return db.prepare('SELECT * FROM soap_notes WHERE appointment_id = ?').get(appointmentId);
 });
 ipcMain.handle('soap:get-by-patient', (event, patientId) => {
+  requireAuth();
   return db.prepare(`
     SELECT s.*, a.date, a.time, a.type as appt_type
     FROM soap_notes s JOIN appointments a ON s.appointment_id = a.id
@@ -1117,6 +1214,7 @@ ipcMain.handle('soap:get-by-patient', (event, patientId) => {
   `).all(patientId);
 });
 ipcMain.handle('soap:get-all', () => {
+  requireAuth();
   return db.prepare(`
     SELECT s.*, p.first_name, p.last_name, a.date as appt_date, a.time as appt_time, a.type as appt_type
     FROM soap_notes s
@@ -1126,26 +1224,33 @@ ipcMain.handle('soap:get-all', () => {
   `).all();
 });
 ipcMain.handle('soap:create', (event, data) => {
+  requireAuth();
   const result = db.prepare(`
     INSERT INTO soap_notes (appointment_id, patient_id, subjective, objective, assessment, plan, diagnosis_codes, procedure_codes, note_date, created_by)
     VALUES (@appointment_id, @patient_id, @subjective, @objective, @assessment, @plan, @diagnosis_codes, @procedure_codes, @note_date, @created_by)
   `).run({ created_by: null, note_date: null, ...data });
+  auditLog('CREATE', 'soap_note', result.lastInsertRowid);
   return { success: true, id: result.lastInsertRowid };
 });
 ipcMain.handle('soap:delete', (event, id) => {
+  requireRole('admin');
   db.prepare('DELETE FROM soap_notes WHERE id = ?').run(id);
+  auditLog('DELETE', 'soap_note', id);
   return { success: true };
 });
 ipcMain.handle('soap:update', (event, { id, data }) => {
+  requireAuth();
   db.prepare(`
     UPDATE soap_notes SET subjective=@subjective, objective=@objective, assessment=@assessment,
     plan=@plan, diagnosis_codes=@diagnosis_codes, procedure_codes=@procedure_codes WHERE id=@id
   `).run({ ...data, id });
+  auditLog('UPDATE', 'soap_note', id);
   return { success: true };
 });
 
 // ── EOB RECORDS ─────────────────────────────────────────────────────────────
 ipcMain.handle('eob:get-all', () => {
+  requireAuth();
   return db.prepare(`
     SELECT e.*, p.first_name, p.last_name, c.claim_number
     FROM eob_records e
@@ -1155,9 +1260,11 @@ ipcMain.handle('eob:get-all', () => {
   `).all();
 });
 ipcMain.handle('eob:get-by-patient', (event, patientId) => {
+  requireAuth();
   return db.prepare('SELECT * FROM eob_records WHERE patient_id = ? ORDER BY received_date DESC').all(patientId);
 });
 ipcMain.handle('eob:create', (event, data) => {
+  requireAuth();
   // Auto-detect discrepancy
   if (data.claim_id && !data.discrepancy_flag) {
     const claim = db.prepare('SELECT * FROM claims WHERE id = ?').get(data.claim_id);
@@ -1170,19 +1277,24 @@ ipcMain.handle('eob:create', (event, data) => {
     INSERT INTO eob_records (claim_id, patient_id, insurer, billed_amount, allowed_amount, paid_amount, patient_responsibility, adjustment_reason, status, received_date, discrepancy_flag, discrepancy_notes)
     VALUES (@claim_id, @patient_id, @insurer, @billed_amount, @allowed_amount, @paid_amount, @patient_responsibility, @adjustment_reason, @status, @received_date, @discrepancy_flag, @discrepancy_notes)
   `).run({ claim_id: null, discrepancy_flag: 0, status: 'received', ...data });
+  auditLog('CREATE', 'eob_record', result.lastInsertRowid);
   return { success: true, id: result.lastInsertRowid };
 });
 ipcMain.handle('eob:delete', (event, id) => {
+  requireRole('admin');
   db.prepare('DELETE FROM eob_records WHERE id = ?').run(id);
+  auditLog('DELETE', 'eob_record', id);
   return { success: true };
 });
 ipcMain.handle('eob:update', (event, { id, data }) => {
+  requireAuth();
   db.prepare(`
     UPDATE eob_records SET insurer=@insurer, received_date=@received_date, billed_amount=@billed_amount,
     allowed_amount=@allowed_amount, paid_amount=@paid_amount,
     patient_responsibility=@patient_responsibility, adjustment_reason=@adjustment_reason,
     status=@status, discrepancy_flag=@discrepancy_flag, discrepancy_notes=@discrepancy_notes WHERE id=@id
   `).run({ ...data, id });
+  auditLog('UPDATE', 'eob_record', id);
   return { success: true };
 });
 
@@ -1203,6 +1315,7 @@ ipcMain.handle('reminders:create-template', (event, data) => {
   return { success: true, id: result.lastInsertRowid };
 });
 ipcMain.handle('reminders:get-log', () => {
+  requireAuth();
   return db.prepare(`
     SELECT l.*, p.first_name || ' ' || p.last_name AS patient_name
     FROM reminder_log l LEFT JOIN patients p ON l.patient_id = p.id
@@ -1210,6 +1323,7 @@ ipcMain.handle('reminders:get-log', () => {
   `).all();
 });
 ipcMain.handle('reminders:send', async (event, { appointmentId, templateId }) => {
+  requireAuth();
   try {
     const appt = db.prepare(`SELECT a.*, p.first_name, p.last_name, p.phone, p.email FROM appointments a JOIN patients p ON a.patient_id = p.id WHERE a.id = ?`).get(appointmentId);
     const template = db.prepare('SELECT * FROM reminder_templates WHERE id = ?').get(templateId);
@@ -1233,6 +1347,7 @@ ipcMain.handle('reminders:send', async (event, { appointmentId, templateId }) =>
 
 // ── WAITLIST ─────────────────────────────────────────────────────────────────
 ipcMain.handle('waitlist:get-all', () => {
+  requireAuth();
   return db.prepare(`
     SELECT w.*, p.first_name || ' ' || p.last_name AS patient_name, p.phone AS patient_phone, p.email
     FROM waitlist w JOIN patients p ON w.patient_id = p.id
@@ -1240,21 +1355,25 @@ ipcMain.handle('waitlist:get-all', () => {
   `).all();
 });
 ipcMain.handle('waitlist:create', (event, data) => {
+  requireAuth();
   const result = db.prepare(`INSERT INTO waitlist (patient_id, desired_date, desired_time, location_id, notes, status) VALUES (@patient_id, @desired_date, @desired_time, @location_id, @notes, 'waiting')`).run({ location_id: null, ...data });
   return { success: true, id: result.lastInsertRowid };
 });
 ipcMain.handle('waitlist:update-status', (event, { id, status }) => {
+  requireAuth();
   const notifiedAt = status === 'notified' ? new Date().toISOString().split('T')[0] : null;
   db.prepare('UPDATE waitlist SET status = ?, notified_at = ? WHERE id = ?').run(status, notifiedAt, id);
   return { success: true };
 });
 ipcMain.handle('waitlist:delete', (event, id) => {
+  requireAuth();
   db.prepare('DELETE FROM waitlist WHERE id = ?').run(id);
   return { success: true };
 });
 
 // ── TRANSPORTATION ───────────────────────────────────────────────────────────
 ipcMain.handle('transport:get-all', () => {
+  requireAuth();
   return db.prepare(`
     SELECT t.*, p.first_name, p.last_name, p.phone, a.date, a.time
     FROM transportation t
@@ -1264,9 +1383,11 @@ ipcMain.handle('transport:get-all', () => {
   `).all();
 });
 ipcMain.handle('transport:get-by-patient', (event, patientId) => {
+  requireAuth();
   return db.prepare('SELECT * FROM transportation WHERE patient_id = ? ORDER BY created_at DESC').all(patientId);
 });
 ipcMain.handle('transport:create', (event, data) => {
+  requireAuth();
   const result = db.prepare(`
     INSERT INTO transportation (appointment_id, patient_id, pickup_address, pickup_time, dropoff_address, driver_name, driver_notes, status)
     VALUES (@appointment_id, @patient_id, @pickup_address, @pickup_time, @dropoff_address, @driver_name, @driver_notes, @status)
@@ -1274,6 +1395,7 @@ ipcMain.handle('transport:create', (event, data) => {
   return { success: true, id: result.lastInsertRowid };
 });
 ipcMain.handle('transport:update', (event, { id, data }) => {
+  requireAuth();
   db.prepare(`
     UPDATE transportation SET pickup_address=@pickup_address, pickup_time=@pickup_time, dropoff_address=@dropoff_address,
     driver_name=@driver_name, driver_notes=@driver_notes, status=@status WHERE id=@id
@@ -1281,12 +1403,14 @@ ipcMain.handle('transport:update', (event, { id, data }) => {
   return { success: true };
 });
 ipcMain.handle('transport:delete', (event, id) => {
+  requireAuth();
   db.prepare('DELETE FROM transportation WHERE id = ?').run(id);
   return { success: true };
 });
 
 // ── PI CASES ─────────────────────────────────────────────────────────────────
 ipcMain.handle('pi:get-all', () => {
+  requireAuth();
   return db.prepare(`
     SELECT pi.*, p.first_name || ' ' || p.last_name AS patient_name, p.phone
     FROM pi_cases pi JOIN patients p ON pi.patient_id = p.id
@@ -1294,30 +1418,38 @@ ipcMain.handle('pi:get-all', () => {
   `).all();
 });
 ipcMain.handle('pi:get-by-patient', (event, patientId) => {
+  requireAuth();
   return db.prepare('SELECT * FROM pi_cases WHERE patient_id = ? ORDER BY created_at DESC').all(patientId);
 });
 ipcMain.handle('pi:create', (event, data) => {
+  requireAuth();
   const result = db.prepare(`
     INSERT INTO pi_cases (patient_id, referral_id, accident_date, accident_description, attorney_name, attorney_firm, attorney_phone, attorney_email, case_number, lien_amount, settlement_amount, case_status, notes)
     VALUES (@patient_id, @referral_id, @accident_date, @accident_description, @attorney_name, @attorney_firm, @attorney_phone, @attorney_email, @case_number, @lien_amount, @settlement_amount, @case_status, @notes)
   `).run({ referral_id: null, case_status: 'open', lien_amount: 0, settlement_amount: 0, ...data });
+  auditLog('CREATE', 'pi_case', result.lastInsertRowid);
   return { success: true, id: result.lastInsertRowid };
 });
 ipcMain.handle('pi:update', (event, { id, data }) => {
+  requireAuth();
   db.prepare(`
     UPDATE pi_cases SET accident_date=@accident_date, accident_description=@accident_description, attorney_name=@attorney_name,
     attorney_firm=@attorney_firm, attorney_phone=@attorney_phone, attorney_email=@attorney_email, case_number=@case_number,
     lien_amount=@lien_amount, settlement_amount=@settlement_amount, case_status=@case_status, notes=@notes WHERE id=@id
   `).run({ ...data, id });
+  auditLog('UPDATE', 'pi_case', id);
   return { success: true };
 });
 ipcMain.handle('pi:delete', (event, id) => {
+  requireRole('admin');
   db.prepare('DELETE FROM pi_cases WHERE id = ?').run(id);
+  auditLog('DELETE', 'pi_case', id);
   return { success: true };
 });
 
 // ── HCFA FORMS ───────────────────────────────────────────────────────────────
 ipcMain.handle('hcfa:get-by-patient', (event, patientId) => {
+  requireAuth();
   return db.prepare(`
     SELECT h.*, s.note_date, s.diagnosis_codes, s.procedure_codes
     FROM hcfa_forms h
@@ -1327,27 +1459,37 @@ ipcMain.handle('hcfa:get-by-patient', (event, patientId) => {
   `).all(patientId);
 });
 ipcMain.handle('hcfa:get-by-soap', (event, soapNoteId) => {
+  requireAuth();
   return db.prepare('SELECT * FROM hcfa_forms WHERE soap_note_id = ? ORDER BY created_at DESC').all(soapNoteId);
 });
 ipcMain.handle('hcfa:create', (event, data) => {
+  requireAuth();
   const result = db.prepare(`
     INSERT INTO hcfa_forms (soap_note_id, patient_id, form_data, status, created_by)
     VALUES (@soap_note_id, @patient_id, @form_data, @status, @created_by)
   `).run({ soap_note_id: null, status: 'Draft', created_by: null, ...data });
+  auditLog('CREATE', 'hcfa_form', result.lastInsertRowid);
   return { success: true, id: result.lastInsertRowid };
 });
 ipcMain.handle('hcfa:update', (event, { id, data }) => {
+  requireAuth();
   db.prepare(`
     UPDATE hcfa_forms SET form_data=@form_data, status=@status, fax_recipient=@fax_recipient,
     fax_sent_at=@fax_sent_at, fax_sent_by=@fax_sent_by, printed_at=@printed_at WHERE id=@id
   `).run({ fax_recipient: null, fax_sent_at: null, fax_sent_by: null, printed_at: null, ...data, id });
+  auditLog('UPDATE', 'hcfa_form', id);
   return { success: true };
 });
 ipcMain.handle('hcfa:get-by-id', (event, id) => {
-  return db.prepare('SELECT * FROM hcfa_forms WHERE id = ?').get(id) || null;
+  requireAuth();
+  const form = db.prepare('SELECT * FROM hcfa_forms WHERE id = ?').get(id) || null;
+  auditLog('READ', 'hcfa_form', id);
+  return form;
 });
 ipcMain.handle('hcfa:delete', (event, id) => {
+  requireRole('admin');
   db.prepare('DELETE FROM hcfa_forms WHERE id = ?').run(id);
+  auditLog('DELETE', 'hcfa_form', id);
   return { success: true };
 });
 
@@ -1357,7 +1499,7 @@ ipcMain.handle('settings:get-all', () => {
   return Object.fromEntries(rows.map(r => [r.key, r.value]));
 });
 ipcMain.handle('settings:set', (event, { key, value }) => {
-  console.log('[Settings] Saving:', key, '=', value, typeof value);
+  console.log('[Settings] Saving:', key);
   if (value === undefined || value === null) {
     console.error('[Settings] Attempted to save undefined value for key:', key);
     return { success: false, error: 'Value is undefined' };
@@ -1560,6 +1702,7 @@ ipcMain.handle('backup:set-folder', async () => {
 
 // ── TIME CLOCK ───────────────────────────────────────────────────────────────
 ipcMain.handle('timeclock:clock-in', (event, { userId, notes }) => {
+  requireAuth();
   // Check not already clocked in
   const open = db.prepare('SELECT id FROM time_clock WHERE user_id = ? AND clock_out IS NULL').get(userId);
   if (open) return { success: false, error: 'Already clocked in' };
@@ -1567,15 +1710,18 @@ ipcMain.handle('timeclock:clock-in', (event, { userId, notes }) => {
   return { success: true, id: result.lastInsertRowid };
 });
 ipcMain.handle('timeclock:clock-out', (event, { userId }) => {
+  requireAuth();
   const open = db.prepare('SELECT id FROM time_clock WHERE user_id = ? AND clock_out IS NULL').get(userId);
   if (!open) return { success: false, error: 'Not clocked in' };
   db.prepare('UPDATE time_clock SET clock_out = CURRENT_TIMESTAMP WHERE id = ?').run(open.id);
   return { success: true };
 });
 ipcMain.handle('timeclock:get-status', (event, userId) => {
+  requireAuth();
   return db.prepare('SELECT * FROM time_clock WHERE user_id = ? AND clock_out IS NULL').get(userId);
 });
 ipcMain.handle('timeclock:get-entries', (event, { userId, startDate, endDate }) => {
+  requireAuth();
   const query = userId
     ? 'SELECT t.*, u.full_name, u.username FROM time_clock t JOIN users u ON t.user_id = u.id WHERE t.user_id = ? AND date(t.clock_in) BETWEEN ? AND ? ORDER BY t.clock_in DESC'
     : 'SELECT t.*, u.full_name, u.username FROM time_clock t JOIN users u ON t.user_id = u.id WHERE date(t.clock_in) BETWEEN ? AND ? ORDER BY t.clock_in DESC';
@@ -1584,19 +1730,23 @@ ipcMain.handle('timeclock:get-entries', (event, { userId, startDate, endDate }) 
     : db.prepare(query).all(startDate, endDate);
 });
 ipcMain.handle('timeclock:approve', (event, { id, approverId }) => {
+  requireRole('admin');
   db.prepare('UPDATE time_clock SET approved = 1, approved_by = ? WHERE id = ?').run(approverId, id);
   return { success: true };
 });
 ipcMain.handle('timeclock:update', (event, { id, data }) => {
+  requireRole('admin');
   db.prepare('UPDATE time_clock SET clock_in=@clock_in, clock_out=@clock_out, notes=@notes WHERE id=@id').run({ ...data, id });
   return { success: true };
 });
 ipcMain.handle('timeclock:get-all-users', () => {
+  requireRole('admin');
   return db.prepare('SELECT id, username, full_name, role FROM users ORDER BY full_name').all();
 });
 
 // ── REPORTS (extended) ───────────────────────────────────────────────────────
 ipcMain.handle('reports:full-dashboard', (event, { startDate, endDate }) => {
+  requireRole('admin');
   const revenue = db.prepare(`SELECT SUM(amount) as total FROM payments WHERE date BETWEEN ? AND ?`).get(startDate, endDate);
   const claims = db.prepare(`SELECT SUM(amount) as billed, SUM(paid_amount) as collected, COUNT(*) as total, SUM(CASE WHEN status='paid' THEN 1 ELSE 0 END) as paid_count, SUM(CASE WHEN status='denied' THEN 1 ELSE 0 END) as denied_count FROM claims WHERE service_date BETWEEN ? AND ?`).get(startDate, endDate);
   const appts = db.prepare(`SELECT status, COUNT(*) as count FROM appointments WHERE date BETWEEN ? AND ? GROUP BY status`).all(startDate, endDate);
@@ -1650,7 +1800,6 @@ ipcMain.handle('transcribe-audio', async (event, float32Array) => {
     const audio   = new Float32Array(float32Array);
     console.log('[Whisper] Array length:', audio.length);
     const result  = await pipe(audio, { language: 'english', task: 'transcribe' });
-    console.log('[Whisper] Transcript:', result.text);
     return { success: true, text: result.text };
   } catch (err) {
     console.error('[Whisper] Error:', err.message);
