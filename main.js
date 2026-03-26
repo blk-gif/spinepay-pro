@@ -1426,11 +1426,11 @@ ipcMain.handle('wizard:complete', (event, payload) => {
     // Create staff users (with temp_password=1 so they go through onboarding on first login)
     if (Array.isArray(staff)) {
       for (const s of staff) {
-        if (!s.username || !s.fullName) continue;
+        if (!s.username || !s.full_name) continue;
         const exists = db.prepare('SELECT id FROM users WHERE username = ?').get(s.username);
         if (!exists) {
           db.prepare('INSERT INTO users (username, password_hash, role, full_name, temp_password) VALUES (?,?,?,?,1)').run(
-            s.username, bcrypt.hashSync('changeme123', 10), s.role || 'staff', s.fullName
+            s.username, bcrypt.hashSync('changeme123', 10), s.role || 'staff', s.full_name
           );
         }
       }
