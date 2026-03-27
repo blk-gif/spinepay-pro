@@ -365,6 +365,27 @@ function initDatabase() {
       value TEXT,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS documents (
+      id              INTEGER PRIMARY KEY AUTOINCREMENT,
+      patient_id      INTEGER REFERENCES patients(id),
+      patient_name    TEXT,
+      document_type   TEXT NOT NULL,
+      file_name       TEXT NOT NULL,
+      file_size       INTEGER,
+      mime_type       TEXT,
+      local_path      TEXT NOT NULL,
+      uploaded_by     INTEGER,
+      uploaded_by_name TEXT,
+      notes           TEXT,
+      retention_date  TEXT,
+      deleted         INTEGER DEFAULT 0,
+      deleted_at      TEXT,
+      created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_docs_patient ON documents(patient_id);
+    CREATE INDEX IF NOT EXISTS idx_docs_type    ON documents(document_type);
   `);
 
   // ── Migrate existing databases: add missing columns ─────────────────────────
@@ -1848,6 +1869,114 @@ function createDevShortcuts() {
     target,
     'SpinePay Pro - Practice Management'
   );
+}
+
+// ── DOCUMENTS ────────────────────────────────────────────────────────────────
+
+const DOCUMENT_TYPES = [
+  'Intake Form', 'Insurance Card', 'X-Ray', 'MRI', 'EOB',
+  'PI Document', 'HIPAA Authorization', 'Referral', 'Lab Results', 'Other',
+];
+
+function getDocsDir() {
+  return path.join(app.getPath('userData'), 'patient-docs');
+}
+
+function buildRetentionDate() {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() + 7);
+  return d.toISOString().split('T')[0];
+}
+
+ipcMain.handle('docs:get-types', () => DOCUMENT_TYPES);
+
+ipcMain.handle('docs:get-all', () => {
+  requireAuth();
+  return db.prepare(`
+    SELECT d.*, p.first_name, p.last_name
+    FROM documents d LEFT JOIN patients p ON p.id = d.patient_id
+    WHERE d.deleted = 0 ORDER BY d.created_at DESC
+  `).all();
+});
+
+ipcMain.handle('docs:get-by-patient', (event, patientId) => {
+  requireAuth();
+  return db.prepare(
+    'SELECT * FROM documents WHERE patient_id = ? AND deleted = 0 ORDER BY created_at DESC'
+  ).all(patientId);
+});
+
+ipcMain.handle('docs:upload', (event, { filePath, patient_id, document_type, notes }) => {
+  requireAuth();
+  if (!filePath || !document_type) return { success: false, error: 'Missing required fields' };
+
+  try {
+    const stat = fs.statSync(filePath);
+    const ext  = path.extname(filePath);
+    const slug = document_type.replace(/\s+/g, '-').toLowerCase();
+    const uid  = crypto.randomUUID ? crypto.randomUUID() : require('crypto').randomUUID();
+    const destDir = path.join(getDocsDir(), String(patient_id || 'general'), slug);
+    fs.mkdirSync(destDir, { recursive: true });
+    const destFile = path.join(destDir, uid + ext);
+    fs.copyFileSync(filePath, destFile);
+
+    let patientName = 'Unknown';
+    if (patient_id) {
+      const p = db.prepare('SELECT first_name, last_name FROM patients WHERE id = ?').get(patient_id);
+      if (p) patientName = `${p.first_name} ${p.last_name}`;
+    }
+
+    const mime = guessMime(ext);
+    const result = db.prepare(`
+      INSERT INTO documents
+        (patient_id, patient_name, document_type, file_name, file_size, mime_type,
+         local_path, uploaded_by, uploaded_by_name, notes, retention_date)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?)
+    `).run(
+      patient_id || null, patientName, document_type,
+      path.basename(filePath), stat.size, mime,
+      destFile, currentUser.id, currentUser.full_name,
+      notes || null, buildRetentionDate()
+    );
+
+    auditLog('UPLOAD', 'document', result.lastInsertRowid);
+    return { success: true, id: result.lastInsertRowid };
+  } catch (err) {
+    console.error('[Documents] Upload error:', err.message);
+    return { success: false, error: err.message };
+  }
+});
+
+ipcMain.handle('docs:view', async (event, id) => {
+  requireAuth();
+  const doc = db.prepare('SELECT * FROM documents WHERE id = ? AND deleted = 0').get(id);
+  if (!doc) return { success: false, error: 'Document not found' };
+  if (!fs.existsSync(doc.local_path)) return { success: false, error: 'File not found on disk' };
+  const { shell } = require('electron');
+  await shell.openPath(doc.local_path);
+  auditLog('VIEW', 'document', id);
+  return { success: true };
+});
+
+ipcMain.handle('docs:delete', (event, id) => {
+  requireRole('admin');
+  const now = new Date().toISOString();
+  const result = db.prepare(
+    'UPDATE documents SET deleted = 1, deleted_at = ? WHERE id = ? AND deleted = 0'
+  ).run(now, id);
+  if (!result.changes) return { success: false, error: 'Document not found' };
+  auditLog('DELETE', 'document', id);
+  return { success: true };
+});
+
+function guessMime(ext) {
+  const map = {
+    '.pdf': 'application/pdf', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+    '.png': 'image/png', '.gif': 'image/gif', '.webp': 'image/webp',
+    '.doc': 'application/msword',
+    '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  };
+  return map[ext.toLowerCase()] || 'application/octet-stream';
 }
 
 // APP LIFECYCLE

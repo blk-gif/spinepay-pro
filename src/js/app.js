@@ -180,6 +180,7 @@ window.App = (() => {
     const titles = {
       dashboard:  'Dashboard',
       patients:   'Patients',
+      documents:  'Documents',
       scheduling: 'Scheduling',
       soap:       'SOAP Notes',
       intake:     'Intake Forms',
@@ -201,6 +202,7 @@ window.App = (() => {
     switch (module) {
       case 'dashboard':   loadDashboard();                  break;
       case 'patients':    window.Patients?.render();        break;
+      case 'documents':   window.Documents?.render();       break;
       case 'scheduling':  window.Scheduling?.render();      break;
       case 'soap':        window.SoapNotes?.render();       break;
       case 'intake':      window.IntakeForms?.render();     break;

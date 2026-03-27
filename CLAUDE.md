@@ -43,6 +43,19 @@ Practice management system with HIPAA compliance requirements.
 ## Next prompt
 - Prompt 4: Staff onboarding system
 
+## Node.js Conventions
+- Use `const` for all requires and variables that are never reassigned; `let` only when reassignment is needed
+- Use `async/await` over raw Promise chains or callbacks
+- Handle errors with try/catch in async functions — never swallow errors silently
+- Use `'use strict'` at the top of every CommonJS file
+- Prefer named functions over anonymous arrow functions for IPC handlers and top-level functions
+- Keep IPC handler names namespaced: `resource:action` (e.g. `staff:get-all`, `auth:login`)
+- Never put business logic directly in IPC handlers — delegate to helper functions
+- Use parameterised queries for all SQLite operations — never string-interpolate user input into SQL
+- All passwords hashed with bcryptjs — never SHA256 or plain text
+- Environment-specific paths via `app.getPath('userData')` — never hardcode absolute paths
+- Log errors with `console.error` including context; use `console.log` with a `[Module]` prefix for info logs
+
 ## Design
 - Black and gold theme throughout
 - Primary gold: #FFD700

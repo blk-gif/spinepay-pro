@@ -169,6 +169,14 @@ contextBridge.exposeInMainWorld('api', {
     onUpdateDownloaded: (cb) => ipcRenderer.on('update-downloaded', cb),
     installNow: () => ipcRenderer.invoke('updater:install-now')
   },
+  docs: {
+    getTypes:      ()                => ipcRenderer.invoke('docs:get-types'),
+    getAll:        ()                => ipcRenderer.invoke('docs:get-all'),
+    getByPatient:  (patientId)       => ipcRenderer.invoke('docs:get-by-patient', patientId),
+    upload:        (data)            => ipcRenderer.invoke('docs:upload', data),
+    view:          (id)              => ipcRenderer.invoke('docs:view', id),
+    delete:        (id)              => ipcRenderer.invoke('docs:delete', id),
+  },
   staff: {
     getAll:          ()               => ipcRenderer.invoke('staff:get-all'),
     create:          (data)           => ipcRenderer.invoke('staff:create', data),
