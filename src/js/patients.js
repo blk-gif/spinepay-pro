@@ -104,6 +104,7 @@ window.Patients = (() => {
             <button class="tab-btn" data-tab="visits"><i class="fa-solid fa-calendar-check"></i> Visit History</button>
             <button class="tab-btn" data-tab="claims"><i class="fa-solid fa-file-invoice-dollar"></i> Claims</button>
             <button class="tab-btn" data-tab="hcfa"><i class="fa-solid fa-file-medical"></i> HCFA Forms</button>
+            <button class="tab-btn" data-tab="documents"><i class="fa-solid fa-folder-open"></i> Documents</button>
           </div>
 
           <div class="tab-pane active" id="tab-info">
@@ -143,6 +144,12 @@ window.Patients = (() => {
               <div id="hcfaTabContent">
                 <div class="table-empty"><i class="fa-solid fa-file-medical"></i><p>No HCFA forms found</p></div>
               </div>
+            </div>
+          </div>
+
+          <div class="tab-pane" id="tab-documents">
+            <div class="card-body">
+              <div id="patientDocsContainer"></div>
             </div>
           </div>
         </div>
@@ -470,6 +477,7 @@ window.Patients = (() => {
       loadVisitsTab(patientId);
       loadClaimsTab(patientId);
       loadHCFATab(patientId);
+      if (window.Documents) window.Documents.renderPatientDocs('patientDocsContainer', patientId);
 
       // Tab switching
       document.querySelectorAll('#patientDetailTabs .tab-btn').forEach(btn => {

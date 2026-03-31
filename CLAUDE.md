@@ -41,7 +41,6 @@ Single-user practice management with voice dictation and HCFA forms.
 - Always push to GitHub when done
 
 ## Pending
-- Prompt 7: Local document storage (patient-docs folder)
 - Prompt 13: Local network multi-user mode
 
 ## Node.js Conventions
